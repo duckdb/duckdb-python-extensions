@@ -1,0 +1,62 @@
+name: Check for new DuckDB release
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target PyPI environment"
+        required: true
+        type: choice
+        options:
+          - pypi-test
+          - pypi
+        default: pypi-test
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      should_publish: ${{ steps.check.outputs.should_publish }}
+    steps:
+      - name: Check for new release
+        id: check
+        run: |
+          # Get latest DuckDB release version
+          LATEST=$(curl -s https://api.github.com/repos/duckdb/duckdb/releases/latest | jq -r .tag_name | sed 's/^v//')
+          echo "Latest DuckDB version: $LATEST"
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ inputs.environment }}" = "pypi" ]; then
+            PYPI_BASE="https://pypi.org"
+          else
+            PYPI_BASE="https://test.pypi.org"
+          fi
+
+          # Check if duckdb-cli exists on target index for this version
+          CLI_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PYPI_BASE/pypi/duckdb-cli/$LATEST/json")
+          if [ "$CLI_STATUS" != "200" ]; then
+            echo "duckdb-cli==$LATEST not yet on target index, skipping"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Check if duckdb-ext-httpfs already published for this version
+          EXT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PYPI_BASE/pypi/duckdb-ext-httpfs/$LATEST/json")
+          if [ "$EXT_STATUS" = "200" ]; then
+            echo "duckdb-ext-httpfs==$LATEST already published, skipping"
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New version to publish: $LATEST"
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: check
+    if: needs.check.outputs.should_publish == 'true'
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
+      environment: ${{ inputs.environment || 'pypi' }}
