@@ -67,17 +67,24 @@ def download_extension(name, version, platform, out_dir):
     return out_path
 
 
-def generate_init_py(name):
-    """Generate __init__.py that exposes extension_path()."""
+def generate_init_py(name, version, duckdb_platform):
+    """Generate __init__.py that exposes extension path helpers."""
     return (
         f'"""DuckDB {name} extension package."""\n'
         "\n"
         "import os\n"
         "\n"
+        '_EXTENSIONS_DIR = ".duckdb_extensions"\n'
+        "\n"
+        "\n"
+        "def get_extensions_dir():\n"
+        '    """Return the path to the shared .duckdb_extensions directory."""\n'
+        "    return os.path.join(os.path.dirname(os.path.dirname(__file__)), _EXTENSIONS_DIR)\n"
+        "\n"
         "\n"
         "def get_extension_load_path():\n"
-        '    """Return the absolute path to the extension binary for LOAD."""\n'
-        f'    return os.path.join(os.path.dirname(__file__), "{name}.duckdb_extension")\n'
+        '    """Return the absolute path to the extension binary."""\n'
+        f'    return os.path.join(get_extensions_dir(), "v{version}", "{duckdb_platform}", "{name}.duckdb_extension")\n'
     ).encode("utf-8")
 
 
@@ -89,7 +96,6 @@ def generate_metadata(name, version):
         f"Version: {version}\n"
         f"Summary: DuckDB {name} extension\n"
         "Requires-Python: >=3.8\n"
-        f"Requires-Dist: duckdb-cli=={version}\n"
     )
 
 
@@ -101,25 +107,27 @@ def build_extension_wheel(name, platform, version, out_dir):
             return None
 
         platform_tag = PLATFORM_TAGS[platform]
+        duckdb_platform = DUCKDB_PLATFORMS[platform]
         pkg = f"duckdb_ext_{name}"
         wheel_tag = f"py3-none-{platform_tag}"
         wheel_name = f"{pkg}-{version}-{wheel_tag}.whl"
         dist_info = f"{pkg}-{version}.dist-info"
+        data_dir = f"{pkg}-{version}.data"
 
         records = []
         wheel_path = os.path.join(out_dir, wheel_name)
 
         with zipfile.ZipFile(wheel_path, "w", zipfile.ZIP_DEFLATED) as zf:
             # __init__.py
-            init_data = generate_init_py(name)
+            init_data = generate_init_py(name, version, duckdb_platform)
             arcname = f"{pkg}/__init__.py"
             _add_file(zf, arcname, init_data)
             records.append((arcname, _record_hash(init_data), str(len(init_data))))
 
-            # Extension binary
+            # Extension binary — installed to shared .duckdb_extensions dir
             with open(ext_path, "rb") as f:
                 ext_data = f.read()
-            arcname = f"{pkg}/{name}.duckdb_extension"
+            arcname = f"{data_dir}/platlib/.duckdb_extensions/v{version}/{duckdb_platform}/{name}.duckdb_extension"
             _add_file(zf, arcname, ext_data)
             records.append((arcname, _record_hash(ext_data), str(len(ext_data))))
 

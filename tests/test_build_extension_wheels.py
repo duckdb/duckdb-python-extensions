@@ -55,13 +55,13 @@ class TestBuildExtensionWheel:
         with zipfile.ZipFile(whl) as zf:
             names = zf.namelist()
             assert "duckdb_ext_httpfs/__init__.py" in names
-            assert "duckdb_ext_httpfs/httpfs.duckdb_extension" in names
+            assert "duckdb_ext_httpfs-1.4.4.data/platlib/.duckdb_extensions/v1.4.4/osx_arm64/httpfs.duckdb_extension" in names
             assert "duckdb_ext_httpfs-1.4.4.dist-info/METADATA" in names
             assert "duckdb_ext_httpfs-1.4.4.dist-info/WHEEL" in names
             assert "duckdb_ext_httpfs-1.4.4.dist-info/top_level.txt" in names
             assert "duckdb_ext_httpfs-1.4.4.dist-info/RECORD" in names
 
-    def test_metadata_requires_dist(self, tmp_path):
+    def test_metadata_no_requires_dist(self, tmp_path):
         with patch.object(
             build_extension_wheels,
             "download_extension",
@@ -72,10 +72,10 @@ class TestBuildExtensionWheel:
             )
         with zipfile.ZipFile(whl) as zf:
             metadata = zf.read("duckdb_ext_httpfs-1.4.4.dist-info/METADATA").decode()
-            assert "Requires-Dist: duckdb-cli==1.4.4" in metadata
+            assert "Requires-Dist" not in metadata
             assert "Name: duckdb-ext-httpfs" in metadata
 
-    def test_init_py_has_get_extension_load_path(self, tmp_path):
+    def test_init_py_has_extension_helpers(self, tmp_path):
         with patch.object(
             build_extension_wheels,
             "download_extension",
@@ -86,7 +86,9 @@ class TestBuildExtensionWheel:
             )
         with zipfile.ZipFile(whl) as zf:
             init = zf.read("duckdb_ext_httpfs/__init__.py").decode()
+            assert "def get_extensions_dir():" in init
             assert "def get_extension_load_path():" in init
+            assert ".duckdb_extensions" in init
             assert "httpfs.duckdb_extension" in init
 
     def test_record_hashes_valid(self, tmp_path):
