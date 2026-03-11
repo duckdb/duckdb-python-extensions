@@ -39,7 +39,7 @@ def _add_file(zf, arcname, data):
 
 def build_alias_wheel(alias, canonical, version, out_dir):
     """Build one noarch alias wheel."""
-    pkg = f"duckdb_ext_{alias}"
+    pkg = f"duckdb_core_ext_{alias}"
     wheel_tag = "py3-none-any"
     wheel_name = f"{pkg}-{version}-{wheel_tag}.whl"
     dist_info = f"{pkg}-{version}.dist-info"
@@ -57,11 +57,11 @@ def build_alias_wheel(alias, canonical, version, out_dir):
         # METADATA
         metadata_content = (
             "Metadata-Version: 2.1\n"
-            f"Name: duckdb-ext-{alias}\n"
+            f"Name: duckdb-core-ext-{alias}\n"
             f"Version: {version}\n"
-            f"Summary: Alias for duckdb-ext-{canonical}\n"
+            f"Summary: Alias for duckdb-core-ext-{canonical}\n"
             "Requires-Python: >=3.8\n"
-            f"Requires-Dist: duckdb-ext-{canonical}=={version}\n"
+            f"Requires-Dist: duckdb-core-ext-{canonical}=={version}\n"
         )
         metadata_bytes = metadata_content.encode("utf-8")
         arcname = f"{dist_info}/METADATA"
@@ -73,7 +73,7 @@ def build_alias_wheel(alias, canonical, version, out_dir):
         # WHEEL
         wheel_content = (
             "Wheel-Version: 1.0\n"
-            "Generator: duckdb-ext-build\n"
+            "Generator: duckdb-extension-build\n"
             "Root-Is-Purelib: true\n"
             f"Tag: {wheel_tag}\n"
         )

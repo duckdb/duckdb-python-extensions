@@ -20,23 +20,23 @@ class TestBuildAliasWheel:
         whl = build_alias_wheels.build_alias_wheel(
             "md", "motherduck", "1.4.4", str(tmp_path)
         )
-        assert os.path.basename(whl) == "duckdb_ext_md-1.4.4-py3-none-any.whl"
+        assert os.path.basename(whl) == "duckdb_core_ext_md-1.4.4-py3-none-any.whl"
 
     def test_metadata_depends_on_canonical(self, tmp_path):
         whl = build_alias_wheels.build_alias_wheel(
             "s3", "httpfs", "1.4.4", str(tmp_path)
         )
         with zipfile.ZipFile(whl) as zf:
-            metadata = zf.read("duckdb_ext_s3-1.4.4.dist-info/METADATA").decode()
-            assert "Requires-Dist: duckdb-ext-httpfs==1.4.4" in metadata
-            assert "Name: duckdb-ext-s3" in metadata
+            metadata = zf.read("duckdb_core_ext_s3-1.4.4.dist-info/METADATA").decode()
+            assert "Requires-Dist: duckdb-core-ext-httpfs==1.4.4" in metadata
+            assert "Name: duckdb-core-ext-s3" in metadata
 
     def test_init_py_is_empty(self, tmp_path):
         whl = build_alias_wheels.build_alias_wheel(
             "s3", "httpfs", "1.4.4", str(tmp_path)
         )
         with zipfile.ZipFile(whl) as zf:
-            init = zf.read("duckdb_ext_s3/__init__.py")
+            init = zf.read("duckdb_core_ext_s3/__init__.py")
             assert init == b""
 
     def test_wheel_structure(self, tmp_path):
@@ -45,10 +45,10 @@ class TestBuildAliasWheel:
         )
         with zipfile.ZipFile(whl) as zf:
             names = zf.namelist()
-            assert "duckdb_ext_postgres_scanner/__init__.py" in names
-            assert "duckdb_ext_postgres_scanner-1.4.4.dist-info/METADATA" in names
-            assert "duckdb_ext_postgres_scanner-1.4.4.dist-info/WHEEL" in names
-            assert "duckdb_ext_postgres_scanner-1.4.4.dist-info/RECORD" in names
+            assert "duckdb_core_ext_postgres_scanner/__init__.py" in names
+            assert "duckdb_core_ext_postgres_scanner-1.4.4.dist-info/METADATA" in names
+            assert "duckdb_core_ext_postgres_scanner-1.4.4.dist-info/WHEEL" in names
+            assert "duckdb_core_ext_postgres_scanner-1.4.4.dist-info/RECORD" in names
 
     def test_reproducible_timestamps(self, tmp_path):
         whl = build_alias_wheels.build_alias_wheel(

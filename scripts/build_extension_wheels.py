@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build platform-specific wheels for duckdb-ext-<name> extension packages.
+"""Build platform-specific wheels for duckdb-extension-<name> extension packages.
 
 Usage:
     uv run scripts/build_extension_wheels.py --version 1.4.4
@@ -50,7 +50,7 @@ def _add_file(zf, arcname, data):
 def download_extension(name, version, platform, out_dir):
     """Download and decompress a DuckDB extension. Returns path or None on 404."""
     url = extension_url(name, f"v{version}", platform)
-    req = Request(url, headers={"User-Agent": "duckdb-ext-build/1.0"})
+    req = Request(url, headers={"User-Agent": "duckdb-extension-build/1.0"})
     try:
         resp = urlopen(req)
     except HTTPError as e:
@@ -92,7 +92,7 @@ def generate_metadata(name, version):
     """Generate PEP 566 METADATA for an extension wheel."""
     return (
         "Metadata-Version: 2.1\n"
-        f"Name: duckdb-ext-{name}\n"
+        f"Name: duckdb-core-ext-{name}\n"
         f"Version: {version}\n"
         f"Summary: DuckDB {name} extension\n"
         "Requires-Python: >=3.8\n"
@@ -108,7 +108,7 @@ def build_extension_wheel(name, platform, version, out_dir):
 
         platform_tag = PLATFORM_TAGS[platform]
         duckdb_platform = DUCKDB_PLATFORMS[platform]
-        pkg = f"duckdb_ext_{name}"
+        pkg = f"duckdb_core_ext_{name}"
         wheel_tag = f"py3-none-{platform_tag}"
         wheel_name = f"{pkg}-{version}-{wheel_tag}.whl"
         dist_info = f"{pkg}-{version}.dist-info"
@@ -142,7 +142,7 @@ def build_extension_wheel(name, platform, version, out_dir):
             # WHEEL
             wheel_content = (
                 "Wheel-Version: 1.0\n"
-                "Generator: duckdb-ext-build\n"
+                "Generator: duckdb-extension-build\n"
                 "Root-Is-Purelib: false\n"
                 f"Tag: {wheel_tag}\n"
             )

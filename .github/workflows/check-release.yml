@@ -43,10 +43,10 @@ jobs:
             exit 0
           fi
 
-          # Check if duckdb-ext-httpfs already published for this version
-          EXT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PYPI_BASE/pypi/duckdb-ext-httpfs/$LATEST/json")
+          # Check if duckdb-core-ext-httpfs already published for this version
+          EXT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PYPI_BASE/pypi/duckdb-core-ext-httpfs/$LATEST/json")
           if [ "$EXT_STATUS" = "200" ]; then
-            echo "duckdb-ext-httpfs==$LATEST already published, skipping"
+            echo "duckdb-core-ext-httpfs==$LATEST already published, skipping"
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
           else
             echo "New version to publish: $LATEST"
