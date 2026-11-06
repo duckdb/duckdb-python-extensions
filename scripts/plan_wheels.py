@@ -8,7 +8,7 @@ Usage:
 Pairs whose wheel is already on the index are not asked of the server, so a steady-state run makes few requests.
 
 Output: {"items": [{"version", "extension", "platforms": [...]}], "late": [{"version", "extension", "platform", "first_upload"}],
-         "stalled": [{"version", "extension", "attempts"}], "waiting": [{"version", "extension", "requires"}]}
+         "failed": [{"version", "extension", "attempts"}], "waiting": [{"version", "extension", "requires"}]}
 """
 
 import argparse
@@ -25,10 +25,10 @@ MAX_ITEMS = 256
 
 
 def plan_json(minimum, index, limit=None, version=None, extensions=None, token=None, now=None, log=sys.stderr, test_index=None):
-    """The work items, late pairs and stalled items as the JSON-ready dict the workflows read.
+    """The work items, late pairs, failed and waiting items as the JSON-ready dict the workflows read.
 
-    With a test index, an item staged there MAX_STAGE_ATTEMPTS times without reaching the index is stalled
-    and left out; a run restricted to one version or extension by hand ignores that cap."""
+    With a test index, an item staged there before without reaching the index failed its test and is left
+    out, listed as failed; a run restricted to one version or extension by hand stages it again."""
     versions = stable_versions(minimum, token=token)
     if version is not None:
         versions = [v for v in versions if v == version]
@@ -59,15 +59,15 @@ def plan_json(minimum, index, limit=None, version=None, extensions=None, token=N
         print(f"build {item.extension} {item.version}: {' '.join(item.platforms)}", file=log)
     for entry in result.late:
         print(f"late {entry.extension} {entry.version} {entry.platform}: release first uploaded {entry.first_upload.isoformat()}", file=log)
-    for entry in result.stalled:
-        print(f"stalled {entry.extension} {entry.version}: staged {entry.attempts} times without promotion", file=log)
+    for entry in result.failed:
+        print(f"failed {entry.extension} {entry.version}: staged {entry.attempts} time(s) without promotion, not retried", file=log)
     for entry in result.waiting:
         print(f"waiting {entry.extension} {entry.version}: needs the released {entry.requires} wheels first", file=log)
 
     return {
         "items": [{"version": i.version, "extension": i.extension, "platforms": i.platforms} for i in items],
         "late": [{"version": l.version, "extension": l.extension, "platform": l.platform, "first_upload": l.first_upload.isoformat()} for l in result.late],
-        "stalled": [{"version": s.version, "extension": s.extension, "attempts": s.attempts} for s in result.stalled],
+        "failed": [{"version": f.version, "extension": f.extension, "attempts": f.attempts} for f in result.failed],
         "waiting": [{"version": w.version, "extension": w.extension, "requires": w.requires} for w in result.waiting],
     }
 
@@ -80,7 +80,7 @@ def _main(argv=None):
     parser.add_argument("--version", default=None, help="Consider only this DuckDB version")
     parser.add_argument("--extension", action="append", choices=list(EXTENSIONS), help="Consider only this extension, by project name (repeatable)")
     parser.add_argument("--github-token", default=None, help="Token for the GitHub API (raises the rate limit)")
-    parser.add_argument("--test-index", default=None, help="Staging index base URL; items staged there too often without promotion are left out")
+    parser.add_argument("--test-index", default=None, help="Staging index base URL; items staged there before without promotion are left out as failed")
     args = parser.parse_args(argv)
 
     result = plan_json(args.minimum, args.index, limit=args.limit, version=args.version, extensions=args.extension, token=args.github_token, test_index=args.test_index)

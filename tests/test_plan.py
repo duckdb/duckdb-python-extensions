@@ -9,7 +9,7 @@ import pytest
 from duckdb_extensions.plan import (
     Late,
     PublishedVersion,
-    Stalled,
+    Failed,
     Waiting,
     WorkItem,
     available,
@@ -28,7 +28,7 @@ def _http_error(url, code):
 
 
 def _two(result):
-    assert result.stalled == [] and result.waiting == []
+    assert result.failed == [] and result.waiting == []
     return result.items, result.late
 
 
@@ -38,16 +38,16 @@ def _items(result):
 
 def _three(result):
     assert result.waiting == []
-    return result.items, result.late, result.stalled
+    return result.items, result.late, result.failed
 
 
 def _is(result):
     assert result.late == [] and result.waiting == []
-    return result.items, result.stalled
+    return result.items, result.failed
 
 
 def _empty(result):
-    return result.items == [] and result.late == [] and result.stalled == [] and result.waiting == []
+    return result.items == [] and result.late == [] and result.failed == [] and result.waiting == []
 
 
 class TestAvailable:
@@ -294,43 +294,43 @@ class TestStableVersions:
         assert stable_versions("1.4.5", fetch=fetch) == ["1.4.5", "1.5.6", "1.10.0", "2.0.0"]
 
 
-class TestStallCap:
+class TestNoNightlyRetry:
     AVAIL = {"2.0.0": {("motherduck", "linux-amd64"), ("tpch", "linux-amd64")}}
 
     def _staged(self, n):
         return {"motherduck": {f"2.0.0.dev{i}": PublishedVersion(files=set(), first_upload=FRESH) for i in range(n)}}
 
-    def test_item_staged_too_often_is_stalled_not_planned(self):
-        items, late, stalled = _three(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=self._staged(5)))
+    def test_an_item_staged_once_without_promotion_is_failed_not_planned(self):
+        items, late, failed = _three(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=self._staged(1)))
 
         assert items == [WorkItem("2.0.0", "tpch", ["linux-amd64"])]
-        assert stalled == [Stalled("2.0.0", "motherduck", 5)]
+        assert failed == [Failed("2.0.0", "motherduck", 1)]
         assert late == []
 
-    def test_below_the_cap_is_planned(self):
-        items, stalled = _is(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=self._staged(4)))
+    def test_never_staged_is_planned(self):
+        items, failed = _is(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged={"motherduck": {}}))
 
         assert [i.extension for i in items] == ["motherduck", "tpch"]
-        assert stalled == []
+        assert failed == []
 
     def test_only_this_versions_staging_counts(self):
-        staged = {"motherduck": {f"1.5.6.dev{i}": PublishedVersion(files=set(), first_upload=FRESH) for i in range(9)}}
-        items, stalled = _is(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=staged))
+        staged = {"motherduck": {f"1.5.6.dev{i}": PublishedVersion(files=set(), first_upload=FRESH) for i in range(3)}}
+        items, failed = _is(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=staged))
 
         assert [i.extension for i in items] == ["motherduck", "tpch"]
-        assert stalled == []
+        assert failed == []
 
-    def test_no_staging_state_disables_the_cap(self):
-        items, stalled = _is(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=None))
+    def test_no_staging_state_disables_the_rule(self):
+        items, failed = _is(plan(["2.0.0"], self.AVAIL, {}, now=NOW, staged=None))
 
-        assert len(items) == 2 and stalled == []
+        assert len(items) == 2 and failed == []
 
-    def test_a_promoted_item_is_never_stalled(self):
+    def test_a_promoted_item_is_never_failed(self):
         pub = {"motherduck": {"2.0.0": PublishedVersion(files={_wheel("motherduck", "2.0.0", "manylinux_2_17_x86_64.manylinux2014_x86_64")}, first_upload=FRESH)}}
-        items, stalled = _is(plan(["2.0.0"], self.AVAIL, pub, now=NOW, staged=self._staged(9)))
+        items, failed = _is(plan(["2.0.0"], self.AVAIL, pub, now=NOW, staged=self._staged(3)))
 
         assert [i.extension for i in items] == ["tpch"]
-        assert stalled == []
+        assert failed == []
 
 
 class TestDependencies:
@@ -390,4 +390,4 @@ class TestStallCount:
         result = plan(["2.0.0"], avail, pub, now=NOW, staged=staged)
 
         assert result.items == [WorkItem("2.0.0", "ui", ["windows-arm64"])]
-        assert result.stalled == []
+        assert result.failed == []

@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import venv
 import zipfile
 
@@ -83,11 +84,24 @@ def site_packages(env_dir):
     return python, out.stdout.strip()
 
 
+# A staging upload can take a few minutes to appear on the index, so an install is retried within the run.
+INSTALL_ATTEMPTS = 4
+INSTALL_RETRY_DELAY = 60
+
+
 def install(python, index, requirements, target):
-    """pip install into target from a simple index URL, or from a local directory of wheels when index is a directory."""
-    source = ["--no-index", "--find-links", index] if os.path.isdir(index) else ["--index-url", index]
+    """pip install into target from a simple index URL, or from a local directory of wheels when index is a
+    directory; a failing install from a URL is retried a few times, a failure here is a failed test."""
+    local = os.path.isdir(index)
+    source = ["--no-index", "--find-links", index] if local else ["--index-url", index]
     cmd = [python, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--only-binary", ":all:", "--no-deps", "--target", target, *source, *requirements]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    attempts = 1 if local else INSTALL_ATTEMPTS
+    for attempt in range(attempts):
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if proc.returncode == 0 or attempt + 1 == attempts:
+            return proc
+        time.sleep(INSTALL_RETRY_DELAY)
+    return proc
 
 
 def verdict(returncode, stdout, name, ext_dir):
