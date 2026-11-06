@@ -87,11 +87,16 @@ jobs:
           name: plan
           path: plan.json
 
+  # Both uploads authenticate with trusted publishing: every project on each index has a publisher registered
+  # for this workflow file and the job's environment, and the job's OIDC token is the credential.
   stage:
     needs: plan
     if: needs.plan.result == 'success' && needs.plan.outputs.items != '[]'
     runs-on: ubuntu-latest
     environment: pypi-test
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -116,11 +121,9 @@ jobs:
             --out-dir dist --stage-version "$VERSION$STAGE_SUFFIX" --stage-dir stage
 
       - name: Upload the staging wheels to test.pypi
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           if ! ls stage/*.whl > /dev/null 2>&1; then echo "nothing built"; exit 0; fi
-          uv publish --check-url https://test.pypi.org/simple/ --publish-url https://test.pypi.org/legacy/ stage/*.whl
+          uv publish --trusted-publishing always --check-url https://test.pypi.org/simple/ --publish-url https://test.pypi.org/legacy/ stage/*.whl
 
       - uses: actions/upload-artifact@v4
         with:
@@ -208,6 +211,8 @@ jobs:
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]' && (github.event_name == 'schedule' || inputs.promote) }}
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      id-token: write
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -230,7 +235,6 @@ jobs:
 
       - name: Upload ${{ matrix.extension }} ${{ matrix.version }} to pypi.org when every platform passed
         env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           VERSION: ${{ matrix.version }}
           EXTENSION: ${{ matrix.extension }}
           PLATFORMS: ${{ matrix.platforms }}
@@ -246,4 +250,4 @@ jobs:
               exit 0
             fi
           done
-          uv publish --check-url https://pypi.org/simple/ dist/*.whl
+          uv publish --trusted-publishing always --check-url https://pypi.org/simple/ dist/*.whl
