@@ -36,7 +36,7 @@ def test_json_shape_limit_and_skip(capsys):
             {"version": "1.5.6", "extension": "httpfs", "platforms": ["linux-amd64", "windows-amd64"]},
         ],
         "late": [],
-        "stalled": [],
+        "failed": [],
         "waiting": [],
     }
     assert _served.skipped == {"2.0.0": {("httpfs", "windows-amd64")}, "1.5.6": set()}
@@ -50,7 +50,7 @@ def test_version_filter_and_stdout(capsys):
         plan_wheels._main(["--minimum", "1.5.0", "--version", "2.0.0", "--extension", "httpfs"])
 
     out = json.loads(capsys.readouterr().out)
-    assert out == {"items": [{"version": "2.0.0", "extension": "httpfs", "platforms": ["linux-amd64"]}], "late": [], "stalled": [], "waiting": []}
+    assert out == {"items": [{"version": "2.0.0", "extension": "httpfs", "platforms": ["linux-amd64"]}], "late": [], "failed": [], "waiting": []}
 
 
 def test_limit_is_clamped_to_the_matrix_maximum():
@@ -62,8 +62,8 @@ def test_limit_is_clamped_to_the_matrix_maximum():
     assert len(result["items"]) == 256
 
 
-def test_stall_cap_applies_only_to_unrestricted_runs_and_asks_the_test_index_only_for_planned_extensions():
-    staged = {"2.0.0.dev%d" % i: PublishedVersion(files=set(), first_upload=NOW) for i in range(5)}
+def test_no_retry_applies_only_to_unrestricted_runs_and_asks_the_test_index_only_for_planned_extensions():
+    staged = {"2.0.0.dev1": PublishedVersion(files=set(), first_upload=NOW)}
     asked = []
 
     def published(e, index):
@@ -81,9 +81,9 @@ def test_stall_cap_applies_only_to_unrestricted_runs_and_asks_the_test_index_onl
         by_extension = plan_wheels.plan_json("1.5.0", "https://pypi.org", now=NOW, test_index="https://test.pypi.org", extensions=["httpfs"])
         by_version = plan_wheels.plan_json("1.5.0", "https://pypi.org", now=NOW, test_index="https://test.pypi.org", version="2.0.0")
     assert nightly["items"] == []
-    assert [s["extension"] for s in nightly["stalled"]] == ["httpfs", "tpch"]
+    assert [f["extension"] for f in nightly["failed"]] == ["httpfs", "tpch"]
     assert asked_nightly == ["httpfs", "tpch"]
     assert asked == []
     assert by_extension["items"] == [{"version": "2.0.0", "extension": "httpfs", "platforms": ["linux-amd64"]}]
     assert [i["extension"] for i in by_version["items"]] == ["httpfs", "tpch"]
-    assert by_extension["stalled"] == [] and by_version["stalled"] == []
+    assert by_extension["failed"] == [] and by_version["failed"] == []

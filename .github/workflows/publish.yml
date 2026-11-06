@@ -75,8 +75,8 @@ jobs:
             echo "## Late: pypi.org refuses new files for these releases"
             jq -r '.late[] | "- \(.extension) \(.version) \(.platform), release first uploaded \(.first_upload)"' plan.json
             echo
-            echo "## Stalled: staged too often without promotion, waiting for a run by hand"
-            jq -r '.stalled[] | "- \(.extension) \(.version): \(.attempts) staging runs"' plan.json
+            echo "## Failed: staged before without promotion, not retried; dispatch by hand with the version or extension input"
+            jq -r '.failed[] | "- \(.extension) \(.version): \(.attempts) staging run(s)"' plan.json
             echo
             echo "## Waiting: a required extension is not on pypi.org yet"
             jq -r '.waiting[] | "- \(.extension) \(.version): needs \(.requires)"' plan.json
@@ -120,10 +120,15 @@ jobs:
           uv run --no-project scripts/build_extension_wheels.py --version "$VERSION" --extension "$EXTENSION" "${flags[@]}" \
             --out-dir dist --stage-version "$VERSION$STAGE_SUFFIX" --stage-dir stage
 
+      # The upload is retried within the run; a file already uploaded by an earlier attempt is skipped by --check-url.
       - name: Upload the staging wheels to test.pypi
         run: |
           if ! ls stage/*.whl > /dev/null 2>&1; then echo "nothing built"; exit 0; fi
-          uv publish --trusted-publishing always --check-url https://test.pypi.org/simple/ --publish-url https://test.pypi.org/legacy/ stage/*.whl
+          for attempt in 1 2 3; do
+            if uv publish --trusted-publishing always --check-url https://test.pypi.org/simple/ --publish-url https://test.pypi.org/legacy/ stage/*.whl; then exit 0; fi
+            echo "upload attempt $attempt failed"; sleep 30
+          done
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:

@@ -40,7 +40,7 @@ class Late:
 
 
 @dataclass(frozen=True)
-class Stalled:
+class Failed:
     version: str
     extension: str
     attempts: int
@@ -57,12 +57,13 @@ class Waiting:
 class Plan:
     items: list
     late: list
-    stalled: list
+    failed: list
     waiting: list
 
 
-# An item staged this many times without being promoted waits for a run started by hand.
-MAX_STAGE_ATTEMPTS = 5
+# An item staged once without being promoted failed its test; the nightly never retries it, a run started by
+# hand with a version or extension input does.
+MAX_STAGE_ATTEMPTS = 1
 
 
 def parse_version(version):
@@ -161,7 +162,8 @@ def _dependency_missing(extension, version, platforms, published):
 
 def plan(versions, available, published, now, staged=None, max_attempts=MAX_STAGE_ATTEMPTS):
     """What to build (newest version first, then extension), what PyPI would refuse as late, what was
-    staged max_attempts times without being promoted, and what waits for a required extension.
+    staged before without being promoted (it failed; no automatic retry), and what waits for a required
+    extension.
 
     A pair is planned when the server has it and its wheel file is not on the index.
     A wheel that exists is never planned again, even if the server file changed.
@@ -192,7 +194,7 @@ def plan(versions, available, published, now, staged=None, max_attempts=MAX_STAG
                 continue
             attempts = stage_attempts(staged, extension, version, since=first_upload) if staged is not None else 0
             if attempts >= max_attempts:
-                result.stalled.append(Stalled(version, extension, attempts))
+                result.failed.append(Failed(version, extension, attempts))
             else:
                 result.items.append(WorkItem(version, extension, missing))
     return result

@@ -45,6 +45,42 @@ def test_cli_home_has_a_duckdb_directory(tmp_path):
     assert os.path.isdir(os.path.join(home, ".duckdb"))
 
 
+def test_install_retries_a_failing_index_install_within_the_run(monkeypatch):
+    outcomes = [1, 1, 0]
+    calls = []
+
+    def fake_run(cmd, capture_output, text, timeout):
+        calls.append(cmd)
+
+        class R:
+            returncode = outcomes[len(calls) - 1]
+            stdout = stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(test_installed.subprocess, "run", fake_run)
+    monkeypatch.setattr(test_installed.time, "sleep", lambda s: None)
+    assert test_installed.install("python", "https://test.pypi.org/simple/", ["duckdb-core-ext-tpch==2.0.0.dev1"], "/site/tpch").returncode == 0
+    assert len(calls) == 3
+
+
+def test_install_from_a_directory_is_not_retried(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(cmd, capture_output, text, timeout):
+        calls.append(cmd)
+
+        class R:
+            returncode = 1
+            stdout = stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(test_installed.subprocess, "run", fake_run)
+    assert test_installed.install("python", str(tmp_path), ["duckdb-core-ext-tpch==2.0.0.dev1"], "/site/tpch").returncode == 1
+    assert len(calls) == 1
+
+
 def test_install_uses_find_links_for_a_directory_and_a_target(tmp_path, monkeypatch):
     seen = {}
 
