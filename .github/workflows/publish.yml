@@ -1,63 +1,253 @@
-name: Publish Extension Wheels
+name: Publish extension wheels
+
+# Every night: plan the wheels pypi.org lacks, build each once, upload a staging copy to test.pypi under a
+# .dev version, install that copy on every platform and load it in the matching DuckDB CLI, then upload
+# the production wheels of every item that passed everywhere. No human step.
 
 on:
+  schedule:
+    - cron: "0 4 * * *" # an hour after duckdb-cli's own check
   workflow_dispatch:
     inputs:
       version:
-        description: "DuckDB version (e.g. 1.4.4)"
-        required: true
+        description: "Only this DuckDB version (default: every stable release at or above the minimum)"
+        required: false
         type: string
-      environment:
-        description: "Target PyPI environment"
-        required: true
-        type: choice
-        options:
-          - pypi-test
-          - pypi
-        default: pypi-test
-  workflow_call:
-    inputs:
-      version:
-        required: true
+      extension:
+        description: "Only this extension, by project name such as httpfs or postgres (default: all)"
+        required: false
         type: string
-      environment:
+      promote:
+        description: "Upload to pypi.org after the tests pass (off: stop after the test.pypi stage)"
         required: true
+        type: boolean
+        default: false
+      limit:
+        description: "At most this many (version, extension) items; a matrix holds 256 jobs"
+        required: false
         type: string
+        default: "200"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+
+env:
+  # Oldest DuckDB line to publish: 1.5.0 introduced extension_directories, and every published duckdb-cli is 1.5.0 or later.
+  MINIMUM_VERSION: "1.5.0"
+  # Staging wheels carry this version suffix so test.pypi, which never reuses a file name, accepts every run.
+  STAGE_SUFFIX: ".dev${{ github.run_id }}"
 
 jobs:
-  build:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      items: ${{ steps.plan.outputs.items }}
+      platforms: ${{ steps.plan.outputs.platforms }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
+      - uses: astral-sh/setup-uv@v6
 
-      - name: Build extension wheels
-        run: uv run scripts/build_extension_wheels.py --version ${{ inputs.version }} --out-dir dist/
-
-      - name: Build alias wheels
-        run: uv run scripts/build_alias_wheels.py --version ${{ inputs.version }} --out-dir dist/
+      - name: Find wheels pypi.org lacks
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY_VERSION: ${{ inputs.version }}
+          ONLY_EXTENSION: ${{ inputs.extension }}
+          LIMIT: ${{ inputs.limit || '200' }}
+        run: |
+          flags=()
+          if [ -n "$ONLY_VERSION" ]; then flags+=(--version "$ONLY_VERSION"); fi
+          if [ -n "$ONLY_EXTENSION" ]; then flags+=(--extension "$ONLY_EXTENSION"); fi
+          uv run --no-project scripts/plan_wheels.py --minimum "$MINIMUM_VERSION" --index https://pypi.org \
+            --test-index https://test.pypi.org --limit "$LIMIT" --github-token "$GH_TOKEN" "${flags[@]}" > plan.json
+          items=$(jq -c '[.items[] | {version, extension, platforms: (.platforms | join(" "))}]' plan.json)
+          platforms=$(jq -c '[.items[].platforms[]] | unique' plan.json)
+          echo "items=$items" >> "$GITHUB_OUTPUT"
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Wheels to build: $(jq '.items | length' plan.json) items, $(jq '[.items[].platforms | length] | add // 0' plan.json) wheels"
+            jq -r '.items[] | "- \(.extension) \(.version): \(.platforms | join(" "))"' plan.json
+            echo
+            echo "## Late: pypi.org refuses new files for these releases"
+            jq -r '.late[] | "- \(.extension) \(.version) \(.platform), release first uploaded \(.first_upload)"' plan.json
+            echo
+            echo "## Stalled: staged too often without promotion, waiting for a run by hand"
+            jq -r '.stalled[] | "- \(.extension) \(.version): \(.attempts) staging runs"' plan.json
+            echo
+            echo "## Waiting: a required extension is not on pypi.org yet"
+            jq -r '.waiting[] | "- \(.extension) \(.version): needs \(.requires)"' plan.json
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels
-          path: dist/*.whl
+          name: plan
+          path: plan.json
 
-  publish:
-    needs: build
+  # Both uploads authenticate with trusted publishing: every project on each index has a publisher registered
+  # for this workflow file and the job's environment, and the job's OIDC token is the credential.
+  stage:
+    needs: plan
+    if: needs.plan.result == 'success' && needs.plan.outputs.items != '[]'
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
+    environment: pypi-test
     permissions:
+      contents: read
       id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.items) }}
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build ${{ matrix.extension }} ${{ matrix.version }} once, as a production and a staging wheel
+        id: build
+        continue-on-error: true
+        env:
+          VERSION: ${{ matrix.version }}
+          EXTENSION: ${{ matrix.extension }}
+          PLATFORMS: ${{ matrix.platforms }}
+        run: |
+          flags=()
+          for p in $PLATFORMS; do flags+=(--platform "$p"); done
+          uv run --no-project scripts/build_extension_wheels.py --version "$VERSION" --extension "$EXTENSION" "${flags[@]}" \
+            --out-dir dist --stage-version "$VERSION$STAGE_SUFFIX" --stage-dir stage
+
+      - name: Upload the staging wheels to test.pypi
+        run: |
+          if ! ls stage/*.whl > /dev/null 2>&1; then echo "nothing built"; exit 0; fi
+          uv publish --trusted-publishing always --check-url https://test.pypi.org/simple/ --publish-url https://test.pypi.org/legacy/ stage/*.whl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.version }}-${{ matrix.extension }}
+          path: dist/*.whl
+          if-no-files-found: ignore
+
+      - name: Fail when a planned platform did not build
+        if: steps.build.outcome == 'failure'
+        run: exit 1
+
+  test:
+    needs: [plan, stage]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.plan.outputs.platforms) }}
+    runs-on: ${{ fromJSON('{"linux-amd64":"ubuntu-latest","linux-amd64-musl":"ubuntu-latest","linux-arm64":"ubuntu-24.04-arm","linux-arm64-musl":"ubuntu-24.04-arm","osx-amd64":"macos-15-intel","osx-arm64":"macos-latest","windows-amd64":"windows-latest","windows-arm64":"windows-11-arm"}')[matrix.platform] }}
+    env:
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
-          name: wheels
-          path: dist/
+          name: plan
 
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: actions/setup-python@v5
+        if: ${{ !endsWith(matrix.platform, '-musl') }}
         with:
-          repository-url: ${{ inputs.environment == 'pypi-test' && 'https://test.pypi.org/legacy/' || '' }}
+          python-version: "3.12"
+
+      # The odbc extension links unixODBC at load time; Windows has its driver manager built in.
+      - name: Install unixODBC
+        if: ${{ startsWith(matrix.platform, 'linux') && !endsWith(matrix.platform, '-musl') }}
+        continue-on-error: true
+        run: sudo apt-get update -qq > /dev/null && sudo apt-get install -y -qq unixodbc > /dev/null
+
+      - name: Install unixODBC
+        if: ${{ startsWith(matrix.platform, 'osx') }}
+        continue-on-error: true
+        run: brew install -q unixodbc
+
+      - name: Install from test.pypi and load each extension in the DuckDB CLI
+        if: ${{ !endsWith(matrix.platform, '-musl') }}
+        shell: bash
+        run: |
+          python3 --version
+          python3 scripts/test_installed.py --platform "$PLATFORM" --plan plan.json --stage-suffix "$STAGE_SUFFIX" --results "results-$PLATFORM.json"
+
+      # Alpine images cannot run the Node-based actions, so the musl checks run in a container started by hand;
+      # the DuckDB CLI needs libstdc++ and the odbc extension unixODBC, which the python image lacks.
+      - name: Install from test.pypi and load each extension in the DuckDB CLI (musl)
+        if: ${{ endsWith(matrix.platform, '-musl') }}
+        shell: bash
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work -e PLATFORM -e STAGE_SUFFIX python:3.12-alpine sh -c '
+            apk add --no-cache libstdc++ unixodbc > /dev/null &&
+            python3 scripts/test_installed.py --platform "$PLATFORM" --plan plan.json --stage-suffix "$STAGE_SUFFIX" --results "results-$PLATFORM.json"
+          '
+
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "results-$PLATFORM.json" ]; then
+            {
+              echo "## $PLATFORM"
+              python3 -c 'import json,sys; [print("-", "ok" if v["ok"] else "FAIL", k) for k, v in sorted(json.load(open(sys.argv[1])).items())]' "results-$PLATFORM.json"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## $PLATFORM: no results" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ matrix.platform }}
+          path: results-${{ matrix.platform }}.json
+          if-no-files-found: ignore
+
+  promote:
+    needs: [plan, stage, test]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]' && (github.event_name == 'schedule' || inputs.promote) }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.items) }}
+    steps:
+      - uses: astral-sh/setup-uv@v6
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: wheels-${{ matrix.version }}-${{ matrix.extension }}
+          path: dist
+
+      - name: Upload ${{ matrix.extension }} ${{ matrix.version }} to pypi.org when every platform passed
+        env:
+          VERSION: ${{ matrix.version }}
+          EXTENSION: ${{ matrix.extension }}
+          PLATFORMS: ${{ matrix.platforms }}
+        run: |
+          if ! ls dist/*.whl > /dev/null 2>&1; then echo "::warning::$EXTENSION $VERSION: no production wheels, the stage job did not finish"; exit 0; fi
+          if ls results/*.json > /dev/null 2>&1; then jq -s 'add // {}' results/*.json > all.json; else echo '{}' > all.json; fi
+          for p in $PLATFORMS; do
+            key="$VERSION $EXTENSION $p"
+            ok=$(jq -r --arg k "$key" '.[$k].ok // false' all.json)
+            if [ "$ok" != "true" ]; then
+              echo "::warning::$key did not pass the staging test, not promoted"
+              jq -r --arg k "$key" '.[$k].detail // "no result"' all.json
+              exit 0
+            fi
+          done
+          uv publish --trusted-publishing always --check-url https://pypi.org/simple/ dist/*.whl

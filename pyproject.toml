@@ -6,3 +6,9 @@ dependencies = []
 
 [dependency-groups]
 test = ["pytest", "pytest-cov"]
+
+[tool.coverage.run]
+source = ["duckdb_extensions", "build_extension_wheels", "plan_wheels", "test_installed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
