@@ -114,7 +114,12 @@ def _parse_upload_time(value):
 
 def published(extension, index, fetch=get_json):
     """Per version, the wheel files of the extension's project on the index and the earliest upload time."""
-    url = f"{index}/simple/{project_name(extension)}/"
+    return published_project(project_name(extension), index, fetch=fetch)
+
+
+def published_project(project, index, fetch=get_json):
+    """Per version, the wheel files of any project on the index and the earliest upload time."""
+    url = f"{index}/simple/{project}/"
     try:
         page = fetch(url, "application/vnd.pypi.simple.v1+json")
     except urllib.error.HTTPError as e:

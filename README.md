@@ -21,9 +21,14 @@ Both uploads authenticate with trusted publishing: every project on test.pypi ha
 
 The list of extensions, their PyPI project names, their aliases and the platform mapping live in `src/duckdb_extensions/registry.py`; the planner in `src/duckdb_extensions/plan.py`; the requests with their retry policy in `src/duckdb_extensions/net.py`.
 
+## Status page
+
+`.github/workflows/status.yml` publishes, on GitHub Pages, which wheels exist per DuckDB version and platform: after every publish run, daily, and by hand. `scripts/status_page.py` gathers the state from extensions.duckdb.org, pypi.org and test.pypi.org and writes `index.html` and `status.json`. A cell is published (on pypi.org), staged (a staging wheel on test.pypi, not yet promoted), waiting (a required extension is not published for that platform), late (pypi.org no longer accepts files for that release), available (served, not yet built) or absent (not served). The page also lists the duckdb-cli wheels per version and platform and the `duckdb` module's wheels per Python tag and platform, since the extension wheels themselves are `py3-none` and independent of the Python version. Pages must be set to deploy from GitHub Actions in the repository settings.
+
 ## Development
 
     uv run --no-project --with pytest python -m pytest tests
     uv run --no-project scripts/plan_wheels.py --minimum 1.5.0 --version 2.0.0 --extension httpfs
     uv run --no-project scripts/build_extension_wheels.py --version 2.0.0 --extension httpfs --platform linux-arm64 --out-dir dist --stage-version 2.0.0.dev1 --stage-dir stage
     uv run --no-project scripts/test_installed.py --platform linux-arm64 --version 2.0.0 --wheel-version 2.0.0.dev1 --extension httpfs --index stage --results results.json
+    uv run --no-project scripts/status_page.py --minimum 1.5.0 --out site

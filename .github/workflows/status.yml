@@ -1,0 +1,47 @@
+name: Status page
+
+# Publishes which extension wheels exist per DuckDB version and platform, on GitHub Pages.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # after the nightly publish has finished
+  workflow_run:
+    workflows: ["Publish extension wheels"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: status-page
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Gather the state of every wheel and render the page
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-project scripts/status_page.py --minimum 1.5.0 --out site --github-token "$GH_TOKEN"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
