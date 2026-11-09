@@ -1,5 +1,8 @@
 """Which DuckDB core extensions exist, what their PyPI projects are called, and where the server keeps them."""
 
+from duckdb_extension_wheel.binary import PLATFORMS
+from duckdb_extension_wheel import dist_name as _tool_dist_name, wheel_filename as _tool_wheel_filename
+
 # PyPI project suffix -> file name on extensions.duckdb.org. The scanners carry the names the duckdb-cli
 # extras require rather than the server's file names. Extensions compiled into the CLI (autocomplete,
 # core_functions, icu, json, parquet) are left out: the CLI never loads them from a file, so a wheel for
@@ -56,18 +59,6 @@ REQUIRES = {
 
 EXTENSIONS_URL = "https://extensions.duckdb.org"
 
-# pip platform -> (platform name on the extension server, wheel platform tag)
-PLATFORMS = {
-    "linux-amd64": ("linux_amd64", "manylinux_2_17_x86_64.manylinux2014_x86_64"),
-    "linux-amd64-musl": ("linux_amd64_musl", "musllinux_1_2_x86_64"),
-    "linux-arm64": ("linux_arm64", "manylinux_2_17_aarch64.manylinux2014_aarch64"),
-    "linux-arm64-musl": ("linux_arm64_musl", "musllinux_1_2_aarch64"),
-    "osx-amd64": ("osx_amd64", "macosx_12_0_x86_64"),
-    "osx-arm64": ("osx_arm64", "macosx_12_0_arm64"),
-    "windows-amd64": ("windows_amd64", "win_amd64"),
-    "windows-arm64": ("windows_arm64", "win_arm64"),
-}
-
 
 def server_name(name):
     return EXTENSIONS[name]
@@ -90,8 +81,8 @@ def project_name(name):
 
 
 def dist_name(name):
-    return f"duckdb_core_ext_{name}"
+    return _tool_dist_name(project_name(name))
 
 
 def wheel_filename(name, version, platform):
-    return f"{dist_name(name)}-{version}-py3-none-{platform_tag(platform)}.whl"
+    return _tool_wheel_filename(project_name(name), version, platform)

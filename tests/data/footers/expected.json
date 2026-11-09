@@ -1,0 +1,338 @@
+{
+ "v1.5.0/linux_amd64/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_amd64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_amd64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "linux_amd64",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/linux_amd64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_amd64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_amd64_musl/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_amd64_musl",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_amd64_musl/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "linux_amd64_musl",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/linux_amd64_musl/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_amd64_musl",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_arm64/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_arm64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_arm64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "linux_arm64",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/linux_arm64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_arm64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_arm64_musl/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_arm64_musl",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/linux_arm64_musl/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "linux_arm64_musl",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/linux_arm64_musl/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "linux_arm64_musl",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/osx_amd64/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "osx_amd64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/osx_amd64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "osx_amd64",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/osx_amd64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "osx_amd64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/osx_arm64/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "osx_arm64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/osx_arm64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "osx_arm64",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/osx_arm64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "osx_arm64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/windows_amd64/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "windows_amd64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/windows_amd64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "windows_amd64",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/windows_amd64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "windows_amd64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/windows_arm64/demo_capi.footer": {
+  "abi_type": "C_STRUCT_UNSTABLE",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "windows_arm64",
+  "version": "v1.5.0"
+ },
+ "v1.5.0/windows_arm64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "2f70a4b34c",
+  "magic": "4",
+  "platform": "windows_arm64",
+  "version": "v1.2.0"
+ },
+ "v1.5.0/windows_arm64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v1.5.0",
+  "magic": "4",
+  "platform": "windows_arm64",
+  "version": "v1.5.0"
+ },
+ "v2.0.0/linux_amd64/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_amd64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_amd64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "linux_amd64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_amd64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_amd64",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/linux_amd64_musl/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_amd64_musl",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_amd64_musl/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "linux_amd64_musl",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_amd64_musl/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_amd64_musl",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/linux_arm64/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_arm64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_arm64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "linux_arm64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_arm64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_arm64",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/linux_arm64_musl/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_arm64_musl",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_arm64_musl/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "linux_arm64_musl",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/linux_arm64_musl/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "linux_arm64_musl",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/osx_amd64/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "osx_amd64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/osx_amd64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "osx_amd64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/osx_amd64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "osx_amd64",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/osx_arm64/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "osx_arm64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/osx_arm64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "osx_arm64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/osx_arm64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "osx_arm64",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/windows_amd64/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "windows_amd64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/windows_amd64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "windows_amd64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/windows_amd64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "windows_amd64",
+  "version": "v2.0.0"
+ },
+ "v2.0.0/windows_arm64/demo_capi.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "windows_arm64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/windows_arm64/odbc_scanner.footer": {
+  "abi_type": "C_STRUCT",
+  "extension_version": "a33698df40",
+  "magic": "4",
+  "platform": "windows_arm64",
+  "version": "v1.5.6"
+ },
+ "v2.0.0/windows_arm64/tpch.footer": {
+  "abi_type": "CPP",
+  "extension_version": "v2.0.0",
+  "magic": "4",
+  "platform": "windows_arm64",
+  "version": "v2.0.0"
+ }
+}

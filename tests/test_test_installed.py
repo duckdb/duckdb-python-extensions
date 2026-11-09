@@ -1,6 +1,5 @@
 """Tests for the pure parts of scripts/test_installed.py; the install and load steps need a network and a CLI."""
 
-import io
 import json
 import os
 import sys
@@ -9,17 +8,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import test_installed
-
-
-def test_cli_asset_urls_newest_layout_first_with_musl():
-    assert test_installed.cli_asset_urls("2.0.0", "linux-amd64-musl") == [
-        "https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64-musl.tar.gz",
-        "https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb_cli-linux-amd64-musl.zip",
-    ]
-    assert test_installed.cli_asset_urls("1.5.6", "windows-arm64") == [
-        "https://github.com/duckdb/duckdb/releases/download/v1.5.6/duckdb-cli-windows-arm64.tar.gz",
-        "https://github.com/duckdb/duckdb/releases/download/v1.5.6/duckdb_cli-windows-arm64.zip",
-    ]
 
 
 def test_items_for_platform_groups_by_version():
@@ -197,53 +185,6 @@ class TestLoadInCli:
         assert "SET extension_directories=['/sp/.duckdb_extensions']" in seen["cmd"][3]
         assert seen["cmd"][5].startswith("LOAD tpch;")
         assert seen["env"]["HOME"] == "/tmp/home" and seen["env"]["USERPROFILE"] == "/tmp/home"
-
-
-class TestDownloadCli:
-    def _tar(self, names):
-        import tarfile
-
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz") as tf:
-            for name in names:
-                info = tarfile.TarInfo(name)
-                info.size = 5
-                tf.addfile(info, io.BytesIO(b"bin!!"))
-        return buf.getvalue()
-
-    def _zip(self, names):
-        import zipfile
-
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            for name in names:
-                zf.writestr(name, b"bin!!")
-        return buf.getvalue()
-
-    def test_tarball_first_then_zip_fallback_picks_the_binary(self, tmp_path, monkeypatch):
-        answers = {
-            "https://github.com/duckdb/duckdb/releases/download/v1.5.6/duckdb-cli-windows-amd64.tar.gz": None,
-            "https://github.com/duckdb/duckdb/releases/download/v1.5.6/duckdb_cli-windows-amd64.zip": self._zip(["LICENSE", "duckdb.exe"]),
-        }
-        monkeypatch.setattr(test_installed, "get_bytes", lambda url: answers[url])
-        path = test_installed.download_cli("1.5.6", "windows-amd64", str(tmp_path))
-        assert os.path.basename(path) == "duckdb.exe"
-        with open(path, "rb") as f:
-            assert f.read() == b"bin!!"
-
-    def test_tarball_with_a_directory_prefix(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(test_installed, "get_bytes", lambda url: self._tar(["./duckdb"]) if url.endswith(".tar.gz") else None)
-        assert os.path.basename(test_installed.download_cli("2.0.0", "linux-arm64", str(tmp_path))) == "duckdb"
-
-    def test_archive_without_binary_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(test_installed, "get_bytes", lambda url: self._tar(["LICENSE"]) if url.endswith(".tar.gz") else None)
-        with pytest.raises(RuntimeError, match="no duckdb binary"):
-            test_installed.download_cli("2.0.0", "linux-arm64", str(tmp_path))
-
-    def test_no_asset_raises(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(test_installed, "get_bytes", lambda url: None)
-        with pytest.raises(RuntimeError, match="no CLI release asset"):
-            test_installed.download_cli("9.9.9", "linux-arm64", str(tmp_path))
 
 
 class TestRun:

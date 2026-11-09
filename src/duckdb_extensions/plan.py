@@ -5,7 +5,7 @@ import urllib.error
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from duckdb_extensions.net import get_json, head as _head
+from duckdb_extension_wheel.net import get_json, head as _head
 from duckdb_extensions.registry import REQUIRES, extension_url, project_name, wheel_filename
 
 # PyPI refuses new files for a release whose first file is older than this, checked at upload time;
