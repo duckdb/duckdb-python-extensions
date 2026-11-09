@@ -80,6 +80,9 @@ jobs:
             echo
             echo "## Waiting: a required extension is not on pypi.org yet"
             jq -r '.waiting[] | "- \(.extension) \(.version): needs \(.requires)"' plan.json
+            echo
+            echo "## Unregistered: served by extensions.duckdb.org, built by DuckDB's CI, not in the registry"
+            jq -r '.unregistered[] | "- \(.extension) \(.version): \(.platforms | join(" "))"' plan.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

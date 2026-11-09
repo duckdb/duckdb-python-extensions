@@ -11,15 +11,20 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+sys.path.insert(0, os.path.dirname(__file__))
+import base64
+import hashlib
 import build_extension_wheels
+from duckdb_extensions.registry import server_platform
+from extension_binaries import synthetic_binary
 
 
 def _fake_download(name, version, platform, out_dir):
-    """Mock download that creates a fake extension binary."""
+    """Mock download that creates a synthetic extension binary with the footer the server's binary would have."""
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{name}.duckdb_extension")
     with open(path, "wb") as f:
-        f.write(b"fake-extension-binary-content")
+        f.write(synthetic_binary(name, server_platform(platform), f"v{version}"))
     return path
 
 
@@ -36,11 +41,11 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "httpfs", "osx-arm64", "1.4.4", str(tmp_path)
+                "httpfs", "osx-arm64", "1.5.4", str(tmp_path)
             )
         assert whl is not None
         assert os.path.basename(whl) == (
-            "duckdb_core_ext_httpfs-1.4.4-py3-none-macosx_12_0_arm64.whl"
+            "duckdb_core_ext_httpfs-1.5.4-py3-none-macosx_12_0_arm64.whl"
         )
 
     def test_wheel_structure(self, tmp_path):
@@ -50,16 +55,16 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "httpfs", "osx-arm64", "1.4.4", str(tmp_path)
+                "httpfs", "osx-arm64", "1.5.4", str(tmp_path)
             )
         with zipfile.ZipFile(whl) as zf:
             names = zf.namelist()
             assert "duckdb_core_ext_httpfs/__init__.py" in names
-            assert "duckdb_core_ext_httpfs-1.4.4.data/platlib/.duckdb_extensions/v1.4.4/osx_arm64/httpfs.duckdb_extension" in names
-            assert "duckdb_core_ext_httpfs-1.4.4.dist-info/METADATA" in names
-            assert "duckdb_core_ext_httpfs-1.4.4.dist-info/WHEEL" in names
-            assert "duckdb_core_ext_httpfs-1.4.4.dist-info/top_level.txt" in names
-            assert "duckdb_core_ext_httpfs-1.4.4.dist-info/RECORD" in names
+            assert "duckdb_core_ext_httpfs-1.5.4.data/platlib/.duckdb_extensions/v1.5.4/osx_arm64/httpfs.duckdb_extension" in names
+            assert "duckdb_core_ext_httpfs-1.5.4.dist-info/METADATA" in names
+            assert "duckdb_core_ext_httpfs-1.5.4.dist-info/WHEEL" in names
+            assert "duckdb_core_ext_httpfs-1.5.4.dist-info/top_level.txt" in names
+            assert "duckdb_core_ext_httpfs-1.5.4.dist-info/RECORD" in names
 
     def test_metadata_no_requires_dist(self, tmp_path):
         with patch.object(
@@ -68,10 +73,10 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "httpfs", "osx-arm64", "1.4.4", str(tmp_path)
+                "httpfs", "osx-arm64", "1.5.4", str(tmp_path)
             )
         with zipfile.ZipFile(whl) as zf:
-            metadata = zf.read("duckdb_core_ext_httpfs-1.4.4.dist-info/METADATA").decode()
+            metadata = zf.read("duckdb_core_ext_httpfs-1.5.4.dist-info/METADATA").decode()
             assert "Requires-Dist" not in metadata
             assert "Name: duckdb-core-ext-httpfs" in metadata
 
@@ -82,7 +87,7 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "httpfs", "osx-arm64", "1.4.4", str(tmp_path)
+                "httpfs", "osx-arm64", "1.5.4", str(tmp_path)
             )
         with zipfile.ZipFile(whl) as zf:
             init = zf.read("duckdb_core_ext_httpfs/__init__.py").decode()
@@ -98,7 +103,7 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "httpfs", "osx-arm64", "1.4.4", str(tmp_path)
+                "httpfs", "osx-arm64", "1.5.4", str(tmp_path)
             )
         with zipfile.ZipFile(whl) as zf:
             record_name = [n for n in zf.namelist() if n.endswith("RECORD")][0]
@@ -111,7 +116,8 @@ class TestBuildExtensionWheel:
                     assert hash_str == ""
                     continue
                 data = zf.read(arcname)
-                expected_hash = build_extension_wheels._record_hash(data)
+                digest = hashlib.sha256(data).digest()
+                expected_hash = "sha256=" + base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
                 assert hash_str == expected_hash
                 assert int(size_str) == len(data)
 
@@ -122,7 +128,7 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "httpfs", "osx-arm64", "1.4.4", str(tmp_path)
+                "httpfs", "osx-arm64", "1.5.4", str(tmp_path)
             )
         with zipfile.ZipFile(whl) as zf:
             for info in zf.infolist():
@@ -135,7 +141,7 @@ class TestBuildExtensionWheel:
             side_effect=_fake_download_404,
         ):
             whl = build_extension_wheels.build_extension_wheel(
-                "jemalloc", "osx-arm64", "1.4.4", str(tmp_path)
+                "jemalloc", "osx-arm64", "1.5.4", str(tmp_path)
             )
         assert whl is None
 

@@ -1,4 +1,4 @@
-"""Tests for duckdb_extensions.net: one retry policy for every request."""
+"""Tests for duckdb_extension_wheel.net: one retry policy for every request."""
 
 import http.client
 import io
@@ -6,7 +6,7 @@ import urllib.error
 
 import pytest
 
-import duckdb_extensions.net as net
+import duckdb_extension_wheel.net as net
 
 
 class _Response(io.BytesIO):

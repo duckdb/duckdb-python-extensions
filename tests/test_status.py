@@ -83,6 +83,7 @@ def _status():
     status.extensions["2.0.0"]["iceberg"]["osx-arm64"] = WAITING
     status.cli = {"2.0.0": {"linux-amd64": True, "osx-arm64": False}, "1.5.6": {}}
     status.module = {"2.0.0": {"cp312": ["win_amd64"]}, "1.5.6": {}}
+    status.unregistered = {"2.0.0": {"glue": ["linux-amd64", "osx-arm64"]}, "1.5.6": {}}
     return status
 
 
@@ -95,6 +96,7 @@ def test_render_shows_every_section_and_the_counts():
     assert "<h2>duckdb-cli</h2>" in page and "duckdb-cli 2.0.0" in page
     assert "<h3>duckdb 2.0.0</h3>" in page and "cp312" in page and "no wheels on pypi.org" in page
     assert "Generated 2026-11-08 12:00 UTC" in page
+    assert "not in the registry yet, so no wheels: glue (linux-amd64 osx-arm64)" in page
     assert "status.json" in page
 
 
@@ -105,3 +107,4 @@ def test_json_round_trips_and_carries_the_legend():
     assert data["duckdb_cli"]["2.0.0"]["linux-amd64"] is True
     assert data["duckdb_module"]["2.0.0"] == {"cp312": ["win_amd64"]}
     assert set(data["legend"]) == {PUBLISHED, STAGED, WAITING, LATE, AVAILABLE, ABSENT}
+    assert data["unregistered"]["2.0.0"] == {"glue": ["linux-amd64", "osx-arm64"]}

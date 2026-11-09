@@ -8,6 +8,10 @@ That directory has the layout of a DuckDB extension directory and of a DuckDB ex
 
     pip install duckdb-cli[httpfs]==2.0.0
 
+## The wheel tool
+
+The wheels are written by `duckdb-extension-wheel`, a command and Python package in `src/duckdb_extension_wheel/` that any extension author can use for their own extension: it reads the platform and DuckDB version from the binary's metadata, writes one wheel per platform in the layout above, and checks that a wheel loads in the matching DuckDB CLI. [PROTOCOL.md](PROTOCOL.md) describes the wheels and the tool for authors. This repository's own pipeline calls the same code.
+
 ## How publishing works
 
 One workflow, `.github/workflows/publish.yml`, runs every night and by hand, with no human step. It plans, stages, tests and promotes:
@@ -19,7 +23,11 @@ One workflow, `.github/workflows/publish.yml`, runs every night and by hand, wit
 
 Both uploads authenticate with trusted publishing: every project on test.pypi has a publisher for this repository, workflow `publish.yml` and environment `pypi-test`, and every project on pypi.org one for environment `pypi`. Neither environment requires reviewers. By hand, the `promote` input decides whether step 4 runs.
 
-The list of extensions, their PyPI project names, their aliases and the platform mapping live in `src/duckdb_extensions/registry.py`; the planner in `src/duckdb_extensions/plan.py`; the requests with their retry policy in `src/duckdb_extensions/net.py`.
+The list of extensions, their PyPI project names and their aliases live in `src/duckdb_extensions/registry.py`; the planner in `src/duckdb_extensions/plan.py`; the platform mapping in `src/duckdb_extension_wheel/binary.py` and the requests with their retry policy in `src/duckdb_extension_wheel/net.py`.
+
+## New core extensions
+
+The registry in `src/duckdb_extensions/registry.py` is the list of what gets published. To catch what it misses, the nightly plan and the status page list every extension that DuckDB's own build configuration names for a release (`.github/config/extensions/` in duckdb/duckdb at the release tag) and that extensions.duckdb.org serves, but that the registry lacks. Such an extension gets wheels once its PyPI projects and publishers exist and a registry line maps its project name to its server name.
 
 ## Status page
 
@@ -28,6 +36,8 @@ The list of extensions, their PyPI project names, their aliases and the platform
 ## Development
 
     uv run --no-project --with pytest python -m pytest tests
+    DUCKDB_EXTENSION_WHEEL_NETWORK=1 uv run --no-project --with pytest python -m pytest tests/test_extension_wheel_network.py
+    uv build
     uv run --no-project scripts/plan_wheels.py --minimum 1.5.0 --version 2.0.0 --extension httpfs
     uv run --no-project scripts/build_extension_wheels.py --version 2.0.0 --extension httpfs --platform linux-arm64 --out-dir dist --stage-version 2.0.0.dev1 --stage-dir stage
     uv run --no-project scripts/test_installed.py --platform linux-arm64 --version 2.0.0 --wheel-version 2.0.0.dev1 --extension httpfs --index stage --results results.json
