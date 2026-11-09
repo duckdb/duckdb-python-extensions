@@ -8,7 +8,8 @@ Usage:
 Pairs whose wheel is already on the index are not asked of the server, so a steady-state run makes few requests.
 
 Output: {"items": [{"version", "extension", "platforms": [...]}], "late": [{"version", "extension", "platform", "first_upload"}],
-         "failed": [{"version", "extension", "attempts"}], "waiting": [{"version", "extension", "requires"}]}
+         "failed": [{"version", "extension", "attempts"}], "waiting": [{"version", "extension", "requires"}],
+         "unregistered": [{"version", "extension", "platforms": [...]}]}
 """
 
 import argparse
@@ -18,6 +19,7 @@ import sys
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+from duckdb_extensions.discover import configured_extensions, unregistered
 from duckdb_extensions.plan import available, plan, published, stable_versions
 from duckdb_extensions.registry import EXTENSIONS, PLATFORMS, wheel_filename
 
@@ -64,11 +66,21 @@ def plan_json(minimum, index, limit=None, version=None, extensions=None, token=N
     for entry in result.waiting:
         print(f"waiting {entry.extension} {entry.version}: needs the released {entry.requires} wheels first", file=log)
 
+    # Served extensions the registry does not know yet: reported, never built, since a new project needs a name
+    # decision and publishers first.
+    new_names = []
+    if not restricted:
+        for v in versions:
+            for name, plats in unregistered(v, configured_extensions(v, token=token)).items():
+                new_names.append({"version": v, "extension": name, "platforms": plats})
+                print(f"unregistered {name} {v}: served for {' '.join(plats)}, not in the registry", file=log)
+
     return {
         "items": [{"version": i.version, "extension": i.extension, "platforms": i.platforms} for i in items],
         "late": [{"version": l.version, "extension": l.extension, "platform": l.platform, "first_upload": l.first_upload.isoformat()} for l in result.late],
         "failed": [{"version": f.version, "extension": f.extension, "attempts": f.attempts} for f in result.failed],
         "waiting": [{"version": w.version, "extension": w.extension, "requires": w.requires} for w in result.waiting],
+        "unregistered": new_names,
     }
 
 

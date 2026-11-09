@@ -26,8 +26,10 @@ def test_json_shape_limit_and_skip(capsys):
     pub = {"httpfs": {"2.0.0": PublishedVersion(files={WIN}, first_upload=NOW)}}
     with patch.object(plan_wheels, "stable_versions", return_value=["1.5.6", "2.0.0"]), \
          patch.object(plan_wheels, "published", side_effect=lambda e, index: pub.get(e, {})), \
-         patch.object(plan_wheels, "available", side_effect=_served):
-        result = plan_wheels.plan_json("1.5.0", "https://pypi.org", limit=3, extensions=["httpfs", "ui"], now=NOW)
+         patch.object(plan_wheels, "available", side_effect=_served), \
+         patch.object(plan_wheels, "configured_extensions", side_effect=lambda v, token=None: ["glue", "httpfs"]), \
+         patch.object(plan_wheels, "unregistered", side_effect=lambda v, names: {"glue": ["linux-amd64"]} if v == "2.0.0" else {}):
+        result = plan_wheels.plan_json("1.5.0", "https://pypi.org", limit=3, now=NOW)
 
     assert result == {
         "items": [
@@ -38,6 +40,7 @@ def test_json_shape_limit_and_skip(capsys):
         "late": [],
         "failed": [],
         "waiting": [],
+        "unregistered": [{"version": "2.0.0", "extension": "glue", "platforms": ["linux-amd64"]}],
     }
     assert _served.skipped == {"2.0.0": {("httpfs", "windows-amd64")}, "1.5.6": set()}
     assert json.loads(json.dumps(result)) == result
@@ -50,7 +53,7 @@ def test_version_filter_and_stdout(capsys):
         plan_wheels._main(["--minimum", "1.5.0", "--version", "2.0.0", "--extension", "httpfs"])
 
     out = json.loads(capsys.readouterr().out)
-    assert out == {"items": [{"version": "2.0.0", "extension": "httpfs", "platforms": ["linux-amd64"]}], "late": [], "failed": [], "waiting": []}
+    assert out == {"items": [{"version": "2.0.0", "extension": "httpfs", "platforms": ["linux-amd64"]}], "late": [], "failed": [], "waiting": [], "unregistered": []}
 
 
 def test_limit_is_clamped_to_the_matrix_maximum():

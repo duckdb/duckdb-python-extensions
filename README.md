@@ -25,6 +25,10 @@ Both uploads authenticate with trusted publishing: every project on test.pypi ha
 
 The list of extensions, their PyPI project names and their aliases live in `src/duckdb_extensions/registry.py`; the planner in `src/duckdb_extensions/plan.py`; the platform mapping in `src/duckdb_extension_wheel/binary.py` and the requests with their retry policy in `src/duckdb_extension_wheel/net.py`.
 
+## New core extensions
+
+The registry in `src/duckdb_extensions/registry.py` is the list of what gets published. To catch what it misses, the nightly plan and the status page list every extension that DuckDB's own build configuration names for a release (`.github/config/extensions/` in duckdb/duckdb at the release tag) and that extensions.duckdb.org serves, but that the registry lacks. Such an extension gets wheels once its PyPI projects and publishers exist and a registry line maps its project name to its server name.
+
 ## Status page
 
 `.github/workflows/status.yml` publishes, on GitHub Pages, which wheels exist per DuckDB version and platform: after every publish run, daily, and by hand. `scripts/status_page.py` gathers the state from extensions.duckdb.org, pypi.org and test.pypi.org and writes `index.html` and `status.json`. A cell is published (on pypi.org), staged (a staging wheel on test.pypi, not yet promoted), waiting (a required extension is not published for that platform), late (pypi.org no longer accepts files for that release), available (served, not yet built) or absent (not served). The page also lists the duckdb-cli wheels per version and platform and the `duckdb` module's wheels per Python tag and platform, since the extension wheels themselves are `py3-none` and independent of the Python version. Pages must be set to deploy from GitHub Actions in the repository settings.
