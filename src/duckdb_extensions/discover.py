@@ -1,6 +1,6 @@
 """Find core extensions the server serves that the registry does not know, from DuckDB's own build configuration."""
 
-from duckdb_extensions.net import get_json, head as _head
+from duckdb_extension_wheel.net import get_json, head as _head
 from duckdb_extensions.registry import EXTENSIONS, EXTENSIONS_URL, PLATFORMS
 
 # One cmake file per out-of-tree extension that DuckDB's CI builds and uploads to the core repository for a tag.
