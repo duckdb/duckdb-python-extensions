@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 
 # extensions.duckdb.org sits behind Cloudflare, which answers 403 to Python's default user agent.
-USER_AGENT = "duckdb-python-extensions/1.0"
+USER_AGENT = "duckdb-extension-wheel/1.0"
 
 RETRIES = 3
 RETRY_DELAY = 5

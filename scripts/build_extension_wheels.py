@@ -10,45 +10,23 @@ Without them every platform is tried and absent ones are skipped.
 """
 
 import argparse
-import base64
-import csv
 import gzip
-import hashlib
-import io
 import os
-import stat
 import sys
 import tempfile
-import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from duckdb_extensions.net import get_bytes
+import duckdb_extension_wheel as tool
+
+from duckdb_extension_wheel.net import get_bytes
 from duckdb_extensions.registry import (
     EXTENSIONS,
     PLATFORMS,
     REQUIRES,
-    dist_name,
     extension_url,
-    platform_tag,
     project_name,
     server_name,
-    server_platform,
-    wheel_filename,
 )
-
-REPRODUCIBLE_DATE = (1980, 1, 1, 0, 0, 0)
-
-
-def _record_hash(data):
-    digest = hashlib.sha256(data).digest()
-    return "sha256=" + base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-
-
-def _add_file(zf, arcname, data):
-    info = zipfile.ZipInfo(arcname, date_time=REPRODUCIBLE_DATE)
-    info.compress_type = zipfile.ZIP_DEFLATED
-    info.external_attr = (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH) << 16
-    zf.writestr(info, data)
 
 
 def download_extension(name, version, platform, out_dir):
@@ -63,95 +41,59 @@ def download_extension(name, version, platform, out_dir):
     return out_path
 
 
-def generate_init_py(name, version, platform):
-    return (
-        f'"""DuckDB {server_name(name)} extension, DuckDB {version}, {server_platform(platform)}."""\n'
-        "\n"
-        "import os\n"
-        "\n"
-        '_EXTENSIONS_DIR = ".duckdb_extensions"\n'
-        "\n"
-        "\n"
-        "def get_extensions_dir():\n"
-        '    """The shared extension directory in site-packages that DuckDB can search and install into."""\n'
-        "    return os.path.join(os.path.dirname(os.path.dirname(__file__)), _EXTENSIONS_DIR)\n"
-        "\n"
-        "\n"
-        "def get_extension_load_path():\n"
-        '    """The extension binary, for LOAD by path."""\n'
-        f'    return os.path.join(get_extensions_dir(), "v{version}", "{server_platform(platform)}", "{server_name(name)}.duckdb_extension")\n'
-    ).encode("utf-8")
+def inspect_binary(name, platform, version, ext_data):
+    """The tool's view of a downloaded binary, checked against what the pipeline asked the server for."""
+    try:
+        ext = tool.extension_from_bytes(server_name(name), ext_data, duckdb_version=version)
+    except tool.WheelError as e:
+        raise tool.WheelError(f"{name} {platform}: {e}") from None
+    if ext.platform != platform:
+        raise tool.WheelError(f"{name} {platform}: binary is for {ext.platform}, not {platform}")
+    return ext
 
 
-def generate_metadata(name, version):
-    requires = "".join(f"Requires-Dist: {project_name(dep)}=={version}\n" for dep in REQUIRES.get(name, []))
-    return (
-        "Metadata-Version: 2.1\n"
-        f"Name: {project_name(name)}\n"
-        f"Version: {version}\n"
-        f"Summary: The DuckDB {server_name(name)} extension for DuckDB {version}, installed into a shared extension directory\n"
-        "Requires-Python: >=3.8\n"
-        f"{requires}"
-        "Project-URL: Documentation, https://duckdb.org/docs/extensions/overview\n"
-        "Project-URL: Source, https://github.com/duckdb/duckdb-python-extensions\n"
-        "Description-Content-Type: text/markdown\n"
-        "\n"
-        f"# {project_name(name)}\n"
-        "\n"
-        f"The DuckDB `{server_name(name)}` extension binary for DuckDB {version}, as published on extensions.duckdb.org, "
-        "placed in the `.duckdb_extensions` directory of site-packages. The `duckdb-cli` package and the "
-        "`duckdb` Python module can search and install from that directory, so the extension loads without "
-        "a download. An extension is built for one DuckDB version: install the release that matches your DuckDB.\n"
-    )
-
-
-def write_wheel(name, platform, version, ext_data, out_dir, wheel_version=None):
+def write_wheel(name, platform, version, ext_data, out_dir, wheel_version=None, ext=None):
     """Write one wheel from the extension bytes. The wheel's own version may differ from the DuckDB version
     (a staging build), but the binary always sits under v<DuckDB version>, where the engine looks for it."""
     wheel_version = wheel_version or version
-    pkg = dist_name(name)
-    wheel_tag = f"py3-none-{platform_tag(platform)}"
-    dist_info = f"{pkg}-{wheel_version}.dist-info"
-    data_dir = f"{pkg}-{wheel_version}.data"
-    records = []
-    wheel_path = os.path.join(out_dir, wheel_filename(name, wheel_version, platform))
-    # Written under a temporary name so that a failed build never leaves a file that looks like a wheel.
-    partial_path = wheel_path + ".partial"
+    if ext is None:
+        ext = inspect_binary(name, platform, version, ext_data)
 
-    def add(zf, arcname, data):
-        _add_file(zf, arcname, data)
-        records.append((arcname, _record_hash(data), str(len(data))))
+    metadata = tool.WheelMetadata(
+        name=project_name(name),
+        version=wheel_version,
+        requires=tuple(f"{project_name(dep)}=={wheel_version}" for dep in REQUIRES.get(name, [])),
+        summary=f"The DuckDB {server_name(name)} extension for DuckDB {wheel_version}, installed into a shared extension directory",
+        description=f"""# {project_name(name)}
 
-    os.makedirs(out_dir, exist_ok=True)
-    with zipfile.ZipFile(partial_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        add(zf, f"{pkg}/__init__.py", generate_init_py(name, version, platform))
-        add(zf, f"{data_dir}/platlib/.duckdb_extensions/v{version}/{server_platform(platform)}/{server_name(name)}.duckdb_extension", ext_data)
-        add(zf, f"{dist_info}/METADATA", generate_metadata(name, wheel_version).encode("utf-8"))
-        add(zf, f"{dist_info}/WHEEL", f"Wheel-Version: 1.0\nGenerator: duckdb-extension-build\nRoot-Is-Purelib: false\nTag: {wheel_tag}\n".encode("utf-8"))
-        add(zf, f"{dist_info}/top_level.txt", f"{pkg}\n".encode("utf-8"))
+The DuckDB `{server_name(name)}` extension binary for DuckDB {wheel_version}, as published on extensions.duckdb.org, placed in the `.duckdb_extensions` directory of site-packages. The `duckdb-cli` package and the `duckdb` Python module can search and install from that directory, so the extension loads without a download. An extension is built for one DuckDB version: install the release that matches your DuckDB.
+""",
+        description_content_type="text/markdown",
+        project_urls=(
+            "Documentation, https://duckdb.org/docs/extensions/overview",
+            "Source, https://github.com/duckdb/duckdb-python-extensions",
+        ),
+        requires_python=">=3.8",
+    )
 
-        record_buf = io.StringIO()
-        writer = csv.writer(record_buf, lineterminator="\n")
-        writer.writerows(records)
-        writer.writerow([f"{dist_info}/RECORD", "", ""])
-        _add_file(zf, f"{dist_info}/RECORD", record_buf.getvalue().encode("utf-8"))
-    os.replace(partial_path, wheel_path)
+    wheel_path = tool.write_wheel(ext, metadata, out_dir)
     print(f"  Built: {wheel_path}")
     return wheel_path
 
 
 def build_extension_wheel(name, platform, version, out_dir, stage_version=None, stage_dir=None):
     """Build one wheel, and with stage_version a second one from the same bytes under that version into
-    stage_dir. Returns the wheel path, or None when the server has no binary for the platform."""
+    stage_dir. Returns the wheel path, None when the server has no binary, or raises WheelError."""
     with tempfile.TemporaryDirectory() as tmp:
         ext_path = download_extension(name, version, platform, tmp)
         if ext_path is None:
             return None
         with open(ext_path, "rb") as f:
             ext_data = f.read()
-    wheel_path = write_wheel(name, platform, version, ext_data, out_dir)
+    ext = inspect_binary(name, platform, version, ext_data)
+    wheel_path = write_wheel(name, platform, version, ext_data, out_dir, ext=ext)
     if stage_version:
-        write_wheel(name, platform, version, ext_data, stage_dir or out_dir, wheel_version=stage_version)
+        write_wheel(name, platform, version, ext_data, stage_dir or out_dir, wheel_version=stage_version, ext=ext)
     return wheel_path
 
 
@@ -173,19 +115,29 @@ def main(argv=None):
 
     wheels = []
     missing = []
+    refused = []
     for ext in extensions:
         for plat in platforms:
             print(f"\nBuilding {ext} {args.version} for {plat}...")
-            w = build_extension_wheel(ext, plat, args.version, args.out_dir, stage_version=args.stage_version, stage_dir=args.stage_dir)
-            if w:
-                wheels.append(w)
-            else:
-                missing.append((ext, plat))
-                print(f"  {ext} {args.version} is not on the server for {plat}")
+            try:
+                w = build_extension_wheel(ext, plat, args.version, args.out_dir, stage_version=args.stage_version, stage_dir=args.stage_dir)
+                if w:
+                    wheels.append(w)
+                else:
+                    missing.append((ext, plat))
+                    print(f"  {ext} {args.version} is not on the server for {plat}")
+            except tool.WheelError as e:
+                refused.append((ext, plat))
+                print(f"  {e}")
 
     print(f"\nBuilt {len(wheels)} wheel(s) in {args.out_dir}/")
+    failures = []
     if strict and missing:
-        sys.exit("Requested platforms not on the server: " + ", ".join(f"{e} {p}" for e, p in missing))
+        failures.append("Requested platforms not on the server: " + ", ".join(f"{e} {p}" for e, p in missing))
+    if refused:
+        failures.append("Refused: " + ", ".join(f"{e} {p}" for e, p in refused))
+    if failures:
+        sys.exit("\n".join(failures))
 
 
 if __name__ == "__main__":
