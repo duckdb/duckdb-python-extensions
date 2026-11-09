@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from duckdb_extensions.discover import configured_extensions, unregistered
 from duckdb_extensions.plan import (
     UPLOAD_MARGIN,
     UPLOAD_WINDOW,
@@ -45,6 +46,7 @@ class Status:
     versions: list
     extensions: dict = field(default_factory=dict)  # version -> extension -> platform -> state
     cli: dict = field(default_factory=dict)  # version -> platform -> bool
+    unregistered: dict = field(default_factory=dict)  # version -> server name -> platforms
     module: dict = field(default_factory=dict)  # version -> python tag -> sorted platform tags
 
 
@@ -115,6 +117,7 @@ def gather(minimum, now=None, token=None):
         cells = {e: {p: classify(version, e, p, served, on_pypi[e], on_test[e], now) for p in PLATFORMS} for e in EXTENSIONS}
         apply_requirements(cells, version, on_pypi)
         status.extensions[version] = cells
+        status.unregistered[version] = unregistered(version, configured_extensions(version, token=token))
     cli = published_project("duckdb-cli", PYPI)
     for version in status.versions:
         files = cli.get(version).files if version in cli else set()
@@ -134,6 +137,7 @@ def to_json(status):
             "extensions": status.extensions,
             "duckdb_cli": status.cli,
             "duckdb_module": status.module,
+            "unregistered": status.unregistered,
         },
         indent=1,
         sort_keys=True,
@@ -194,6 +198,10 @@ def render(status):
         summary = ", ".join(f"{counts[k]} {k}" for k in (PUBLISHED, STAGED, WAITING, LATE, AVAILABLE) if counts[k])
         parts.append(f"<h2>DuckDB {html.escape(version)}</h2><p class=\"note\">{html.escape(summary)}</p>")
         parts.append(_table(platforms, rows))
+        new_names = status.unregistered.get(version, {})
+        if new_names:
+            listed = "; ".join(f"{html.escape(n)} ({html.escape(' '.join(p))})" for n, p in sorted(new_names.items()))
+            parts.append(f"<p class=\"note\">Served by extensions.duckdb.org and built by DuckDB's CI for this release, but not in the registry yet, so no wheels: {listed}.</p>")
     parts.append("<h2>duckdb-cli</h2><p class=\"note\">The CLI binary as a PyPI package, one wheel per platform, any Python from 3.8 on.</p>")
     rows = [(f"duckdb-cli {v}", [f'<td class="{"yes" if ok else "no"}">{"●" if ok else "✕"}</td>' for ok in (status.cli.get(v, {}).get(p, False) for p in CLI_PLATFORMS)]) for v in status.versions]
     parts.append(_table(CLI_PLATFORMS, rows))
