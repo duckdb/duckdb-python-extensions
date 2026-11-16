@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from duckdb_extensions.discover import configured_extensions, unregistered
 from duckdb_extensions.plan import available, plan, published, stable_versions
-from duckdb_extensions.registry import EXTENSIONS, PLATFORMS, wheel_filename
+from duckdb_extensions.registry import EXTENSIONS, PLATFORMS, REQUIRES, wheel_filename
 
 MAX_ITEMS = 256
 
@@ -38,7 +38,12 @@ def plan_json(minimum, index, limit=None, version=None, extensions=None, token=N
     extensions = extensions or list(EXTENSIONS)
     print(f"Stable releases considered: {' '.join(versions) or 'none'}", file=log)
 
-    on_index = {e: published(e, index) for e in extensions}
+    # The index state of a required extension decides whether its dependent is planned or waits, so the
+    # lookup covers the requirements of the selected extensions too, also when a run selects one by hand.
+    looked_up = set(extensions)
+    for e in extensions:
+        looked_up.update(REQUIRES.get(e, []))
+    on_index = {e: published(e, index) for e in sorted(looked_up)}
     served = {}
     for v in versions:
         have = {

@@ -90,3 +90,31 @@ def test_no_retry_applies_only_to_unrestricted_runs_and_asks_the_test_index_only
     assert by_extension["items"] == [{"version": "2.0.0", "extension": "httpfs", "platforms": ["linux-amd64"]}]
     assert [i["extension"] for i in by_version["items"]] == ["httpfs", "tpch"]
     assert by_extension["failed"] == [] and by_version["failed"] == []
+
+
+def test_a_run_restricted_to_a_dependent_extension_still_sees_its_requirement_on_the_index():
+    avro_files = {f"duckdb_core_ext_avro-2.0.0-py3-none-{tag}.whl" for tag in ("manylinux_2_17_x86_64.manylinux2014_x86_64", "macosx_12_0_arm64")}
+    asked = []
+
+    def published(e, index):
+        asked.append(e)
+        return {"2.0.0": PublishedVersion(files=avro_files, first_upload=NOW)} if e == "avro" else {}
+
+    with patch.object(plan_wheels, "stable_versions", return_value=["2.0.0"]), \
+         patch.object(plan_wheels, "published", side_effect=published), \
+         patch.object(plan_wheels, "available", side_effect=lambda v, e, p, skip=frozenset(): {(x, plat) for x in e for plat in ("linux-amd64", "osx-arm64")}):
+        result = plan_wheels.plan_json("1.5.0", "https://pypi.org", now=NOW, extensions=["iceberg"])
+
+    assert sorted(asked) == ["avro", "iceberg"]
+    assert result["items"] == [{"version": "2.0.0", "extension": "iceberg", "platforms": ["linux-amd64", "osx-arm64"]}]
+    assert result["waiting"] == []
+
+
+def test_a_run_restricted_to_a_dependent_extension_waits_when_the_requirement_is_not_released():
+    with patch.object(plan_wheels, "stable_versions", return_value=["2.0.0"]), \
+         patch.object(plan_wheels, "published", return_value={}), \
+         patch.object(plan_wheels, "available", side_effect=lambda v, e, p, skip=frozenset(): {(x, "linux-amd64") for x in e}):
+        result = plan_wheels.plan_json("1.5.0", "https://pypi.org", now=NOW, extensions=["iceberg"])
+
+    assert result["items"] == []
+    assert result["waiting"] == [{"version": "2.0.0", "extension": "iceberg", "requires": "avro"}]
