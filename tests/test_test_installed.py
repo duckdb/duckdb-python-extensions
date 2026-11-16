@@ -33,61 +33,59 @@ def test_cli_home_has_a_duckdb_directory(tmp_path):
     assert os.path.isdir(os.path.join(home, ".duckdb"))
 
 
-def test_install_retries_a_failing_index_install_within_the_run(monkeypatch):
-    outcomes = [1, 1, 0]
+def _fake_pip(monkeypatch, outcomes=None):
+    """A subprocess.run stand-in recording pip command lines; outcomes gives the return code per call."""
     calls = []
 
     def fake_run(cmd, capture_output, text, timeout):
         calls.append(cmd)
 
         class R:
-            returncode = outcomes[len(calls) - 1]
+            returncode = outcomes[len(calls) - 1] if outcomes else 0
             stdout = stderr = ""
 
         return R()
 
     monkeypatch.setattr(test_installed.subprocess, "run", fake_run)
     monkeypatch.setattr(test_installed.time, "sleep", lambda s: None)
-    assert test_installed.install("python", "https://test.pypi.org/simple/", ["duckdb-core-ext-tpch==2.0.0.dev1"], "/site/tpch").returncode == 0
-    assert len(calls) == 3
+    return calls
 
 
-def test_install_from_a_directory_is_not_retried(tmp_path, monkeypatch):
-    calls = []
+def test_install_downloads_from_each_index_then_installs_once(monkeypatch):
+    calls = _fake_pip(monkeypatch)
+    wanted = [("duckdb-core-ext-avro==2.0.0", "https://pypi.org/simple/"), ("duckdb-core-ext-iceberg==2.0.0.dev1", "https://test.pypi.org/simple/")]
 
-    def fake_run(cmd, capture_output, text, timeout):
-        calls.append(cmd)
+    proc = test_installed.install("python", "/site/iceberg", wanted, "/dl/iceberg")
 
-        class R:
-            returncode = 1
-            stdout = stderr = ""
+    assert proc.returncode == 0
+    assert [c[3] for c in calls] == ["download", "download", "install"]
+    assert calls[0][calls[0].index("--index-url") + 1] == "https://pypi.org/simple/" and calls[0][-1] == "duckdb-core-ext-avro==2.0.0"
+    assert calls[1][calls[1].index("--index-url") + 1] == "https://test.pypi.org/simple/" and calls[1][-1] == "duckdb-core-ext-iceberg==2.0.0.dev1"
+    assert all(c[c.index("--dest") + 1] == "/dl/iceberg" for c in calls[:2])
+    install = calls[2]
+    assert install[install.index("--target") + 1] == "/site/iceberg"
+    assert "--no-index" in install and install[install.index("--find-links") + 1] == "/dl/iceberg"
+    assert install[-2:] == ["duckdb-core-ext-avro==2.0.0", "duckdb-core-ext-iceberg==2.0.0.dev1"]
+    assert all("--no-deps" in c and "--only-binary" in c for c in calls)
 
-        return R()
 
-    monkeypatch.setattr(test_installed.subprocess, "run", fake_run)
-    assert test_installed.install("python", str(tmp_path), ["duckdb-core-ext-tpch==2.0.0.dev1"], "/site/tpch").returncode == 1
-    assert len(calls) == 1
+def test_install_retries_a_failing_download_from_an_index(monkeypatch):
+    calls = _fake_pip(monkeypatch, outcomes=[1, 1, 0, 0])
+
+    proc = test_installed.install("python", "/site/tpch", [("duckdb-core-ext-tpch==2.0.0.dev1", "https://test.pypi.org/simple/")], "/dl/tpch")
+
+    assert proc.returncode == 0
+    assert [c[3] for c in calls] == ["download", "download", "download", "install"]
 
 
-def test_install_uses_find_links_for_a_directory_and_a_target(tmp_path, monkeypatch):
-    seen = {}
+def test_install_from_a_directory_is_not_retried_and_a_failed_download_stops(tmp_path, monkeypatch):
+    calls = _fake_pip(monkeypatch, outcomes=[1])
 
-    def fake_run(cmd, capture_output, text, timeout):
-        seen["cmd"] = cmd
+    proc = test_installed.install("python", "/site/tpch", [("duckdb-core-ext-tpch==2.0.0.dev1", str(tmp_path))], "/dl/tpch")
 
-        class R:
-            returncode = 0
-
-        return R()
-
-    monkeypatch.setattr(test_installed.subprocess, "run", fake_run)
-    test_installed.install("python", str(tmp_path), ["duckdb-core-ext-tpch==2.0.0.dev1"], "/site/tpch")
-    assert "--find-links" in seen["cmd"] and "--no-index" in seen["cmd"]
-    assert seen["cmd"][seen["cmd"].index("--target") + 1] == "/site/tpch"
-    test_installed.install("python", "https://test.pypi.org/simple/", ["duckdb-core-ext-tpch==2.0.0.dev1"], "/site/tpch")
-    assert seen["cmd"][seen["cmd"].index("--index-url") + 1] == "https://test.pypi.org/simple/"
-    assert "--extra-index-url" not in seen["cmd"]
-    assert "--only-binary" in seen["cmd"] and "--no-deps" in seen["cmd"]
+    assert proc.returncode == 1
+    assert len(calls) == 1 and calls[0][3] == "download"
+    assert "--find-links" in calls[0] and "--no-index" in calls[0]
 
 
 class TestRunWiring:
@@ -98,10 +96,10 @@ class TestRunWiring:
             returncode = 0
             stdout = stderr = ""
 
-        def install(python, index, requirements, target):
-            calls.append((index, tuple(requirements), target))
+        def install(python, target, wanted, downloads):
+            calls.append((tuple(wanted), target, downloads))
             os.makedirs(os.path.join(target, ".duckdb_extensions", "v2.0.0", "linux_arm64"), exist_ok=True)
-            for r in requirements:
+            for r, _ in wanted:
                 name = r.split("==")[0].replace("duckdb-core-ext-", "")
                 open(os.path.join(target, ".duckdb_extensions", "v2.0.0", "linux_arm64", test_installed.server_name(name) + ".duckdb_extension"), "w").close()
             return Pip()
@@ -116,12 +114,11 @@ class TestRunWiring:
         ok = test_installed.run("2.0.0", "2.0.0.dev7", "linux-arm64", ["iceberg", "tpch"], "https://test.pypi.org/simple/", str(results))
 
         assert ok is True
-        assert [(c[0], c[1]) for c in calls] == [
-            ("https://pypi.org/simple/", ("duckdb-core-ext-avro==2.0.0",)),
-            ("https://test.pypi.org/simple/", ("duckdb-core-ext-iceberg==2.0.0.dev7",)),
-            ("https://test.pypi.org/simple/", ("duckdb-core-ext-tpch==2.0.0.dev7",)),
+        assert [c[0] for c in calls] == [
+            (("duckdb-core-ext-avro==2.0.0", "https://pypi.org/simple/"), ("duckdb-core-ext-iceberg==2.0.0.dev7", "https://test.pypi.org/simple/")),
+            (("duckdb-core-ext-tpch==2.0.0.dev7", "https://test.pypi.org/simple/"),),
         ]
-        assert calls[0][2] == calls[1][2] and calls[1][2] != calls[2][2]
+        assert calls[0][1] != calls[1][1] and calls[0][2] != calls[1][2]
         data = json.loads(results.read_text())
         assert data["2.0.0 iceberg linux-arm64"]["detail"].endswith(os.path.join("site", "iceberg", ".duckdb_extensions"))
 
@@ -138,7 +135,7 @@ class TestRunWiring:
 
         monkeypatch.setattr(test_installed, "install", lambda *a: Pip())
         assert test_installed.run("2.0.0", "2.0.0.dev7", "linux-arm64", ["tpch"], "https://test.pypi.org/simple/", str(results)) is False
-        monkeypatch.setattr(test_installed, "install", lambda python, index, reqs, target: (os.makedirs(os.path.join(target, ".duckdb_extensions", "v2.0.0", "linux_arm64"), exist_ok=True), open(os.path.join(target, ".duckdb_extensions", "v2.0.0", "linux_arm64", "tpch.duckdb_extension"), "w").close(), type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())[-1])
+        monkeypatch.setattr(test_installed, "install", lambda python, target, wanted, downloads: (os.makedirs(os.path.join(target, ".duckdb_extensions", "v2.0.0", "linux_arm64"), exist_ok=True), open(os.path.join(target, ".duckdb_extensions", "v2.0.0", "linux_arm64", "tpch.duckdb_extension"), "w").close(), type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})())[-1])
         monkeypatch.setattr(test_installed, "load_in_cli", lambda cli, ext_dir, name, home: (True, "loaded"))
         assert test_installed.run("2.0.0", "2.0.0.dev7", "linux-arm64", ["tpch"], "https://test.pypi.org/simple/", str(results)) is True
         data = json.loads(results.read_text())
