@@ -69,6 +69,9 @@ class Extension:
     duckdb_version: str
     abi_type: str
     data: bytes
+    # The install information DuckDB writes beside an extension it installs from a repository; a load of a
+    # community extension needs it to trust the community keys. None for a core extension.
+    info: bytes = None
 
 
 # DuckDB gained the extension_directories setting in 1.5.0; before that no wrapper can make it search the
@@ -112,7 +115,7 @@ def _symbol_char(byte):
     return len(byte) == 1 and byte[0] in _SYMBOL_CHARS
 
 
-def extension_from_bytes(name, data, duckdb_version=None):
+def extension_from_bytes(name, data, duckdb_version=None, info=None):
     if not name or not re.fullmatch(r"[a-z0-9_]+", name):
         raise WheelError(f"extension name must be lowercase letters, digits and underscores: {name}")
 
@@ -141,10 +144,32 @@ def extension_from_bytes(name, data, duckdb_version=None):
     if not _contains_symbol(data, entry.encode("ascii"), allow_v2=footer.abi_type != "CPP"):
         raise WheelError(f"does not contain entry point: {entry}")
 
-    return Extension(name, pip_platform, version, footer.abi_type, data)
+    return Extension(name, pip_platform, version, footer.abi_type, data, info)
 
 
-def inspect_extension(path, duckdb_version=None):
+def _read_info(path, info_path, core):
+    """The install information for the binary at path: the file given, else <path>.info beside it, else none
+    for a core extension, else an error, since DuckDB 2.0 refuses a community extension without it."""
+    if info_path is None and os.path.isfile(path + ".info"):
+        info_path = path + ".info"
+    if info_path is None:
+        if core:
+            return None
+        raise WheelError(
+            f"{path}: no install information: put the {os.path.basename(path)}.info that INSTALL wrote beside "
+            "the binary, pass it with --info, or say --core-extension for a binary signed with a DuckDB core key"
+        )
+    try:
+        with open(info_path, "rb") as f:
+            info = f.read()
+    except (IOError, OSError) as e:
+        raise WheelError(f"{info_path}: cannot read: {e}")
+    if not info:
+        raise WheelError(f"{info_path}: install information is empty")
+    return info
+
+
+def inspect_extension(path, duckdb_version=None, info_path=None, core=False):
     file_name = os.path.basename(path)
     if not file_name.endswith(".duckdb_extension"):
         raise WheelError(f"{path}: file name does not end with .duckdb_extension")
@@ -157,7 +182,9 @@ def inspect_extension(path, duckdb_version=None):
     except (IOError, OSError) as e:
         raise WheelError(f"{path}: cannot read: {e}")
 
+    info = _read_info(path, info_path, core)
+
     try:
-        return extension_from_bytes(name, data, duckdb_version=duckdb_version)
+        return extension_from_bytes(name, data, duckdb_version=duckdb_version, info=info)
     except WheelError as e:
         raise WheelError(f"{path}: {e}") from None

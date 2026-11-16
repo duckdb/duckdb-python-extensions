@@ -3,8 +3,15 @@ name = "duckdb-extension-wheel"
 version = "0.1.0"
 description = "Build pip wheels from DuckDB extension binaries"
 readme = "PROTOCOL.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 dependencies = []
+keywords = ["duckdb", "extension", "wheel"]
+
+[project.urls]
+Source = "https://github.com/duckdb/duckdb-python-extensions"
+Status = "https://duckdb.github.io/duckdb-python-extensions/"
 
 [project.scripts]
 duckdb-extension-wheel = "duckdb_extension_wheel.cli:main"

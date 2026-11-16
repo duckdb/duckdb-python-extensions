@@ -106,63 +106,63 @@ class TestInspect:
     """name, platform, DuckDB version and ABI type of a binary."""
 
     def test_cpp_binary(self, tmp_path):
-        ext = tool.inspect_extension(_binary(tmp_path, "geo", "linux_arm64_musl", "v2.0.0"))
+        ext = tool.inspect_extension(_binary(tmp_path, "geo", "linux_arm64_musl", "v2.0.0"), core=True)
         assert (ext.name, ext.platform, ext.duckdb_version, ext.abi_type) == ("geo", "linux-arm64-musl", "2.0.0", "CPP")
 
     @pytest.mark.parametrize("server_platform", ["linux_amd64", "linux_amd64_musl", "linux_arm64", "linux_arm64_musl", "osx_amd64", "osx_arm64", "windows_amd64", "windows_arm64"])
     def test_every_server_platform_maps_to_its_pip_platform(self, tmp_path, server_platform):
-        ext = tool.inspect_extension(_binary(tmp_path, platform=server_platform))
+        ext = tool.inspect_extension(_binary(tmp_path, platform=server_platform), core=True)
         assert tool.PLATFORMS[ext.platform][0] == server_platform
 
     def test_cpp_binary_with_agreeing_duckdb_version(self, tmp_path):
-        assert tool.inspect_extension(_binary(tmp_path), duckdb_version="2.0.0").duckdb_version == "2.0.0"
+        assert tool.inspect_extension(_binary(tmp_path), duckdb_version="2.0.0", core=True).duckdb_version == "2.0.0"
 
     def test_cpp_binary_with_disagreeing_duckdb_version(self, tmp_path):
         with pytest.raises(tool.WheelError, match="v2.0.0"):
-            tool.inspect_extension(_binary(tmp_path), duckdb_version="1.5.6")
+            tool.inspect_extension(_binary(tmp_path), duckdb_version="1.5.6", core=True)
 
     def test_unstable_c_api_binary_carries_the_duckdb_version(self, tmp_path):
-        ext = tool.inspect_extension(_binary(tmp_path, version="v1.5.0", abi_type="C_STRUCT_UNSTABLE"))
+        ext = tool.inspect_extension(_binary(tmp_path, version="v1.5.0", abi_type="C_STRUCT_UNSTABLE"), core=True)
         assert (ext.duckdb_version, ext.abi_type) == ("1.5.0", "C_STRUCT_UNSTABLE")
 
     def test_c_api_binary_needs_the_duckdb_version(self, tmp_path):
         with pytest.raises(tool.WheelError, match="duckdb.version"):
-            tool.inspect_extension(_binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT"))
+            tool.inspect_extension(_binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT"), core=True)
 
     def test_c_api_binary_takes_the_given_duckdb_version(self, tmp_path):
-        ext = tool.inspect_extension(_binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT"), duckdb_version="2.0.0")
+        ext = tool.inspect_extension(_binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT"), duckdb_version="2.0.0", core=True)
         assert (ext.duckdb_version, ext.abi_type) == ("2.0.0", "C_STRUCT")
 
     @pytest.mark.parametrize("platform", ["wasm_eh", "wasm_mvp", "wasm_threads", "windows_amd64_mingw", "linux_amd64_gcc4"])
     def test_platform_without_a_wheel_tag(self, tmp_path, platform):
         with pytest.raises(tool.WheelError, match=platform):
-            tool.inspect_extension(_binary(tmp_path, platform=platform))
+            tool.inspect_extension(_binary(tmp_path, platform=platform), core=True)
 
     @pytest.mark.parametrize("version", ["v2.0.1-dev42", "5f5512b827", "2.0.0", "v2.0"])
     def test_development_or_malformed_footer_version(self, tmp_path, version):
         with pytest.raises(tool.WheelError, match="version"):
-            tool.inspect_extension(_binary(tmp_path, version=version))
+            tool.inspect_extension(_binary(tmp_path, version=version), core=True)
 
     @pytest.mark.parametrize("given", ["v2.0.0", "2.0", "2.0.0-dev1", "", "2.0.0\n"])
     def test_malformed_given_duckdb_version(self, tmp_path, given):
         with pytest.raises(tool.WheelError, match="version"):
-            tool.inspect_extension(_binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT"), duckdb_version=given)
+            tool.inspect_extension(_binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT"), duckdb_version=given, core=True)
 
     def test_binary_without_its_entry_point(self, tmp_path):
         path = _write(tmp_path, "geo.duckdb_extension", synthetic_binary("geo", "linux_amd64", "v2.0.0", entry="tpch_duckdb_cpp_init"))
         with pytest.raises(tool.WheelError, match="geo_duckdb_cpp_init"):
-            tool.inspect_extension(path)
+            tool.inspect_extension(path, core=True)
 
     def test_c_api_binary_needs_the_c_api_entry_point(self, tmp_path):
         path = _write(tmp_path, "geo.duckdb_extension", synthetic_binary("geo", "linux_amd64", "v1.5.6", "C_STRUCT", entry="geo_duckdb_cpp_init"))
         with pytest.raises(tool.WheelError, match="geo_init_c_api"):
-            tool.inspect_extension(path, duckdb_version="2.0.0")
+            tool.inspect_extension(path, duckdb_version="2.0.0", core=True)
 
     @pytest.mark.parametrize("file_name", ["geo.so", "geo.duckdb_extension.gz", "Geo.duckdb_extension", "my-geo.duckdb_extension", ".duckdb_extension"])
     def test_file_name_that_is_not_an_extension_name(self, tmp_path, file_name):
         path = _write(tmp_path, file_name, synthetic_binary("geo", "linux_amd64", "v2.0.0"))
         with pytest.raises(tool.WheelError):
-            tool.inspect_extension(path)
+            tool.inspect_extension(path, core=True)
 
     def test_from_bytes_names_the_extension(self):
         ext = tool.extension_from_bytes("geo", synthetic_binary("geo", "osx_amd64", "v2.0.0"))
@@ -176,15 +176,15 @@ class TestRealBinaries:
         return os.path.join(DATA, "binaries", version, "linux_amd64", "demo_capi.duckdb_extension")
 
     def test_c_api_demo_for_2_0_0(self):
-        ext = tool.inspect_extension(self._path("v2.0.0"), duckdb_version="2.0.0")
+        ext = tool.inspect_extension(self._path("v2.0.0"), duckdb_version="2.0.0", core=True)
         assert (ext.name, ext.platform, ext.duckdb_version, ext.abi_type) == ("demo_capi", "linux-amd64", "2.0.0", "C_STRUCT")
 
     def test_c_api_demo_for_2_0_0_names_its_c_api_version_when_no_duckdb_version_is_given(self):
         with pytest.raises(tool.WheelError, match="v1.5.6"):
-            tool.inspect_extension(self._path("v2.0.0"))
+            tool.inspect_extension(self._path("v2.0.0"), core=True)
 
     def test_unstable_c_api_demo_for_1_5_0(self):
-        ext = tool.inspect_extension(self._path("v1.5.0"))
+        ext = tool.inspect_extension(self._path("v1.5.0"), core=True)
         assert (ext.duckdb_version, ext.abi_type) == ("1.5.0", "C_STRUCT_UNSTABLE")
 
 
@@ -192,7 +192,7 @@ class TestWheelLayout:
     """The wheel layout, for any project name and wheel version."""
 
     def test_file_name_and_members(self, tmp_path):
-        ext = tool.inspect_extension(_binary(tmp_path))
+        ext = tool.inspect_extension(_binary(tmp_path), core=True)
         path = tool.write_wheel(ext, _metadata(name="Acme.DuckDB-Geo"), str(tmp_path / "out"))
         assert os.path.basename(path) == f"acme_duckdb_geo-0.3.1-py3-none-{LINUX_TAG}.whl"
         with zipfile.ZipFile(path) as zf:
@@ -207,7 +207,7 @@ class TestWheelLayout:
 
     def test_binary_bytes_wheel_file_and_top_level(self, tmp_path):
         binary = _binary(tmp_path)
-        path = tool.write_wheel(tool.inspect_extension(binary), _metadata(), str(tmp_path / "out"))
+        path = tool.write_wheel(tool.inspect_extension(binary, core=True), _metadata(), str(tmp_path / "out"))
         with zipfile.ZipFile(path) as zf:
             data = zf.read("acme_duckdb_geo-0.3.1.data/platlib/.duckdb_extensions/v2.0.0/linux_amd64/geo.duckdb_extension")
             wheel = zf.read("acme_duckdb_geo-0.3.1.dist-info/WHEEL").decode()
@@ -218,7 +218,7 @@ class TestWheelLayout:
         assert top_level == "acme_duckdb_geo\n"
 
     def test_init_module_points_at_the_binary(self, tmp_path):
-        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path)), _metadata(), str(tmp_path / "out"))
+        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(), str(tmp_path / "out"))
         with zipfile.ZipFile(path) as zf:
             source = zf.read("acme_duckdb_geo/__init__.py").decode()
         site = tmp_path / "site"
@@ -230,7 +230,7 @@ class TestWheelLayout:
         assert namespace["get_extension_load_path"]() == os.path.join(str(site), ".duckdb_extensions", "v2.0.0", "linux_amd64", "geo.duckdb_extension")
 
     def test_record_hashes_sizes_and_reproducible_entries(self, tmp_path):
-        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path)), _metadata(), str(tmp_path / "out"))
+        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(), str(tmp_path / "out"))
         with zipfile.ZipFile(path) as zf:
             rows = list(csv.reader(io.StringIO(zf.read("acme_duckdb_geo-0.3.1.dist-info/RECORD").decode())))
             assert [r[0] for r in rows] == zf.namelist()
@@ -244,14 +244,14 @@ class TestWheelLayout:
                 assert info.compress_type == zipfile.ZIP_DEFLATED
 
     def test_same_inputs_same_bytes(self, tmp_path):
-        ext = tool.inspect_extension(_binary(tmp_path))
+        ext = tool.inspect_extension(_binary(tmp_path), core=True)
         first = tool.write_wheel(ext, _metadata(), str(tmp_path / "a"))
         second = tool.write_wheel(ext, _metadata(), str(tmp_path / "b"))
         with open(first, "rb") as a, open(second, "rb") as b:
             assert a.read() == b.read()
 
     def test_a_failed_write_leaves_nothing(self, tmp_path, monkeypatch):
-        ext = tool.inspect_extension(_binary(tmp_path))
+        ext = tool.inspect_extension(_binary(tmp_path), core=True)
 
         def boom(self, info, data, *args, **kwargs):
             raise OSError("disk full")
@@ -264,14 +264,14 @@ class TestWheelLayout:
     @pytest.mark.parametrize("name", ["3d-geo", "geo ext", "-geo", "geo-", "", "café"])
     def test_names_that_make_no_importable_module(self, tmp_path, name):
         with pytest.raises(tool.WheelError):
-            tool.write_wheel(tool.inspect_extension(_binary(tmp_path)), _metadata(name=name), str(tmp_path / "out"))
+            tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(name=name), str(tmp_path / "out"))
 
 
 class TestMetadata:
     """the METADATA file."""
 
     def _text(self, tmp_path, **kw):
-        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path)), _metadata(**kw), str(tmp_path / "out"))
+        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(**kw), str(tmp_path / "out"))
         return _metadata_text(path)
 
     def test_only_the_required_fields(self, tmp_path):
@@ -312,7 +312,7 @@ class TestMetadata:
         assert self._text(tmp_path, description="Plain.\n").endswith("Description-Content-Type: text/plain\n\nPlain.\n")
 
     def test_wheel_version_is_independent_of_the_duckdb_version(self, tmp_path):
-        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path)), _metadata(version="2026.11.9.post1"), str(tmp_path / "out"))
+        path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(version="2026.11.9.post1"), str(tmp_path / "out"))
         with zipfile.ZipFile(path) as zf:
             assert "acme_duckdb_geo-2026.11.9.post1.data/platlib/.duckdb_extensions/v2.0.0/linux_amd64/geo.duckdb_extension" in zf.namelist()
 
@@ -352,7 +352,7 @@ class TestBuildWheels:
         for platform in ("windows_arm64", "linux_amd64", "osx_arm64"):
             (tmp_path / platform).mkdir()
             paths.append(_binary(tmp_path / platform, platform=platform))
-        wheels = tool.build_wheels(paths, _metadata(), str(tmp_path / "out"))
+        wheels = tool.build_wheels(paths, _metadata(), str(tmp_path / "out"), core=True)
         assert [os.path.basename(w) for w in wheels] == [
             "acme_duckdb_geo-0.3.1-py3-none-win_arm64.whl",
             f"acme_duckdb_geo-0.3.1-py3-none-{LINUX_TAG}.whl",
@@ -374,24 +374,24 @@ class TestBuildWheels:
     )
     def test_binaries_that_do_not_belong_in_one_project_release(self, tmp_path, first, second, message):
         with pytest.raises(tool.WheelError, match=message):
-            tool.build_wheels(self._two(tmp_path, first, second), _metadata(), str(tmp_path / "out"))
+            tool.build_wheels(self._two(tmp_path, first, second), _metadata(), str(tmp_path / "out"), core=True)
         assert not (tmp_path / "out").exists() or os.listdir(tmp_path / "out") == []
 
     def test_a_refused_binary_stops_every_wheel(self, tmp_path):
         paths = self._two(tmp_path, {}, {"platform": "wasm_eh"})
         with pytest.raises(tool.WheelError, match="wasm_eh"):
-            tool.build_wheels(paths, _metadata(), str(tmp_path / "out"))
+            tool.build_wheels(paths, _metadata(), str(tmp_path / "out"), core=True)
         assert not (tmp_path / "out").exists() or os.listdir(tmp_path / "out") == []
 
     def test_a_refusal_names_the_binary(self, tmp_path):
         paths = self._two(tmp_path, {}, {"platform": "wasm_eh"})
         with pytest.raises(tool.WheelError) as excinfo:
-            tool.build_wheels(paths, _metadata(), str(tmp_path / "out"))
+            tool.build_wheels(paths, _metadata(), str(tmp_path / "out"), core=True)
         assert paths[1] in str(excinfo.value)
 
     def test_c_api_binaries_for_every_platform_with_the_duckdb_version(self, tmp_path):
         paths = self._two(tmp_path, {"version": "v1.5.6", "abi_type": "C_STRUCT"}, {"version": "v1.5.6", "abi_type": "C_STRUCT", "platform": "windows_amd64"})
-        wheels = tool.build_wheels(paths, _metadata(), str(tmp_path / "out"), duckdb_version="2.0.0")
+        wheels = tool.build_wheels(paths, _metadata(), str(tmp_path / "out"), duckdb_version="2.0.0", core=True)
         with zipfile.ZipFile(wheels[1]) as zf:
             assert "acme_duckdb_geo-0.3.1.data/platlib/.duckdb_extensions/v2.0.0/windows_amd64/geo.duckdb_extension" in zf.namelist()
 
@@ -402,7 +402,7 @@ class TestCommandLine:
     def test_build_prints_the_wheels(self, tmp_path, capsys):
         (tmp_path / "x").mkdir()
         binaries = [_binary(tmp_path), _binary(tmp_path / "x", platform="osx_arm64")]
-        status = tool_main(["build", "--name", "acme-duckdb-geo", "--version", "0.3.1", "--out-dir", str(tmp_path / "dist"), *binaries])
+        status = tool_main(["build", "--core-extension", "--name", "acme-duckdb-geo", "--version", "0.3.1", "--out-dir", str(tmp_path / "dist"), *binaries])
         out = capsys.readouterr().out.split()
         assert status == 0
         assert [os.path.basename(p) for p in out] == [f"acme_duckdb_geo-0.3.1-py3-none-{LINUX_TAG}.whl", "acme_duckdb_geo-0.3.1-py3-none-macosx_12_0_arm64.whl"]
@@ -412,7 +412,7 @@ class TestCommandLine:
         description = tmp_path / "README.rst"
         description.write_text("Geo\n===\n")
         status = tool_main([
-            "build", "--name", "acme-duckdb-geo", "--version", "0.3.1",
+            "build", "--core-extension", "--name", "acme-duckdb-geo", "--version", "0.3.1",
             "--requires", "duckdb-cli==2.0.0", "--requires", "shapely>=2",
             "--summary", "Geometry", "--description-file", str(description), "--license", "MIT",
             "--project-url", "Source, https://example.com/geo", "--requires-python", ">=3.10",
@@ -429,12 +429,12 @@ class TestCommandLine:
     def test_description_content_type_follows_the_suffix(self, tmp_path, capsys, suffix, content_type):
         description = tmp_path / f"DESCRIPTION{suffix}"
         description.write_text("Text.\n")
-        tool_main(["build", "--name", "g", "--version", "1", "--description-file", str(description), "--out-dir", str(tmp_path / "d"), _binary(tmp_path)])
+        tool_main(["build", "--core-extension", "--name", "g", "--version", "1", "--description-file", str(description), "--out-dir", str(tmp_path / "d"), _binary(tmp_path)])
         assert f"Description-Content-Type: {content_type}\n" in _metadata_text(capsys.readouterr().out.strip())
 
     def test_c_api_binary_with_duckdb_version(self, tmp_path, capsys):
         binary = _binary(tmp_path, version="v1.5.6", abi_type="C_STRUCT")
-        assert tool_main(["build", "--name", "g", "--version", "1", "--duckdb-version", "2.0.0", "--out-dir", str(tmp_path / "d"), binary]) == 0
+        assert tool_main(["build", "--core-extension", "--name", "g", "--version", "1", "--duckdb-version", "2.0.0", "--out-dir", str(tmp_path / "d"), binary]) == 0
         with zipfile.ZipFile(capsys.readouterr().out.strip()) as zf:
             assert "g-1.data/platlib/.duckdb_extensions/v2.0.0/linux_amd64/geo.duckdb_extension" in zf.namelist()
 
@@ -448,7 +448,7 @@ class TestCommandLine:
         ],
     )
     def test_refusals_exit_1_with_a_message_and_no_wheel(self, tmp_path, capsys, extra, binary_kw):
-        status = tool_main(["build", "--name", "g", "--version", "1", *extra, "--out-dir", str(tmp_path / "d"), _binary(tmp_path, **binary_kw)])
+        status = tool_main(["build", "--core-extension", "--name", "g", "--version", "1", *extra, "--out-dir", str(tmp_path / "d"), _binary(tmp_path, **binary_kw)])
         captured = capsys.readouterr()
         assert status == 1
         assert captured.err.startswith("error: ")
@@ -456,7 +456,7 @@ class TestCommandLine:
         assert not (tmp_path / "d").exists() or os.listdir(tmp_path / "d") == []
 
     def test_missing_file_is_a_refusal(self, tmp_path, capsys):
-        assert tool_main(["build", "--name", "g", "--version", "1", "--out-dir", str(tmp_path / "d"), str(tmp_path / "geo.duckdb_extension")]) == 1
+        assert tool_main(["build", "--core-extension", "--name", "g", "--version", "1", "--out-dir", str(tmp_path / "d"), str(tmp_path / "geo.duckdb_extension")]) == 1
         assert capsys.readouterr().err.startswith("error: ")
 
     @pytest.mark.parametrize("argv", [["build", "--version", "1", "x.duckdb_extension"], ["build", "--name", "g", "x.duckdb_extension"], ["build", "--name", "g", "--version", "1"], []])
@@ -481,7 +481,7 @@ class TestReferenceWheels:
         name, platform, version, wheel_version, server_file = case[:5]
         head, body = _metadata_text(_reference(case)).split("\n\n", 1)
         fields = [line.split(": ", 1) for line in head.splitlines()]
-        argv = ["build", "--name", dict(fields)["Name"], "--version", wheel_version, "--duckdb-version", version, "--summary", dict(fields)["Summary"]]
+        argv = ["build", "--core-extension", "--name", dict(fields)["Name"], "--version", wheel_version, "--duckdb-version", version, "--summary", dict(fields)["Summary"]]
         argv += [a for key, value in fields if key == "Requires-Dist" for a in ("--requires", value)]
         argv += [a for key, value in fields if key == "Project-URL" for a in ("--project-url", value)]
         description = tmp_path / "description.md"
@@ -554,7 +554,7 @@ class TestCheck:
 
     def _wheel(self, tmp_path, platform=None):
         binary = _binary(tmp_path, platform=platform or host_server_platform())
-        return tool.write_wheel(tool.inspect_extension(binary), _metadata(), str(tmp_path / "dist"))
+        return tool.write_wheel(tool.inspect_extension(binary, core=True), _metadata(), str(tmp_path / "dist"))
 
     def test_reads_what_the_wheel_installs(self, tmp_path):
         found = tool_check.read_wheel(self._wheel(tmp_path, "osx_amd64"))
@@ -648,3 +648,81 @@ class TestSymbolSearch:
         assert _contains_symbol(b"\0odbc_init_c_api_v2\0", b"odbc_init_c_api", allow_v2=True)
         assert not _contains_symbol(b"\0odbc_init_c_api_v2\0", b"odbc_init_c_api", allow_v2=False)
         assert _contains_symbol(b"tpch_duckdb_cpp_init", b"tpch_duckdb_cpp_init", allow_v2=False), "at the very start"
+
+
+class TestInstallInformation:
+    """A community extension needs the .info file DuckDB wrote beside it; a core extension says so and needs none."""
+
+    def _binary(self, tmp_path, name="h3"):
+        from tests.extension_binaries import synthetic_binary
+
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        path = tmp_path / f"{name}.duckdb_extension"
+        path.write_bytes(synthetic_binary(name, "linux_amd64", "v2.0.0"))
+        return path
+
+    def test_without_info_and_without_core_flag_is_an_error(self, tmp_path):
+        from duckdb_extension_wheel import WheelError, inspect_extension
+
+        with pytest.raises(WheelError, match="no install information"):
+            inspect_extension(str(self._binary(tmp_path)))
+
+    def test_info_beside_the_binary_is_found_and_shipped(self, tmp_path):
+        from duckdb_extension_wheel import WheelMetadata, inspect_extension, write_wheel
+
+        binary = self._binary(tmp_path)
+        (tmp_path / "h3.duckdb_extension.info").write_bytes(b"install-info-bytes")
+        ext = inspect_extension(str(binary))
+        assert ext.info == b"install-info-bytes"
+        whl = write_wheel(ext, WheelMetadata(name="acme-h3", version="1.0"), str(tmp_path / "dist"))
+        with zipfile.ZipFile(whl) as zf:
+            names = zf.namelist()
+            binary_member = "acme_h3-1.0.data/platlib/.duckdb_extensions/v2.0.0/linux_amd64/h3.duckdb_extension"
+            assert binary_member in names and binary_member + ".info" in names
+            assert zf.read(binary_member + ".info") == b"install-info-bytes"
+            record = zf.read("acme_h3-1.0.dist-info/RECORD").decode()
+            assert binary_member + ".info," in record
+
+    def test_info_flag_names_the_file(self, tmp_path):
+        from duckdb_extension_wheel import inspect_extension
+
+        binary = self._binary(tmp_path)
+        info = tmp_path / "elsewhere.info"
+        info.write_bytes(b"given")
+        assert inspect_extension(str(binary), info_path=str(info)).info == b"given"
+
+    def test_empty_info_is_an_error(self, tmp_path):
+        from duckdb_extension_wheel import WheelError, inspect_extension
+
+        binary = self._binary(tmp_path)
+        (tmp_path / "h3.duckdb_extension.info").write_bytes(b"")
+        with pytest.raises(WheelError, match="empty"):
+            inspect_extension(str(binary))
+
+    def test_core_extension_ships_no_info_and_keeps_the_layout(self, tmp_path):
+        from duckdb_extension_wheel import WheelMetadata, inspect_extension, write_wheel
+
+        ext = inspect_extension(str(self._binary(tmp_path, "tpch")), core=True)
+        assert ext.info is None
+        whl = write_wheel(ext, WheelMetadata(name="duckdb-core-ext-tpch", version="2.0.0"), str(tmp_path / "dist"))
+        with zipfile.ZipFile(whl) as zf:
+            assert not any(n.endswith(".info") for n in zf.namelist())
+
+    def test_info_flag_with_several_binaries_is_an_error(self, tmp_path):
+        from duckdb_extension_wheel import WheelError, WheelMetadata, build_wheels
+
+        a = self._binary(tmp_path / "a")
+        b = self._binary(tmp_path / "b")
+        info = tmp_path / "x.info"
+        info.write_bytes(b"i")
+        with pytest.raises(WheelError, match="one binary"):
+            build_wheels([str(a), str(b)], WheelMetadata(name="acme-h3", version="1.0"), str(tmp_path / "dist"), info_path=str(info))
+
+    def test_command_line_build_with_info_beside_the_binary(self, tmp_path, capsys):
+        from duckdb_extension_wheel.cli import main as tool_main
+
+        binary = self._binary(tmp_path)
+        (tmp_path / "h3.duckdb_extension.info").write_bytes(b"i")
+        assert tool_main(["build", "--name", "acme-h3", "--version", "1.0", "--out-dir", str(tmp_path / "dist"), str(binary)]) == 0
+        assert tool_main(["build", "--name", "acme-h3", "--version", "1.1", "--out-dir", str(tmp_path / "dist"), str(self._binary(tmp_path / "other"))]) == 1
+        assert "no install information" in capsys.readouterr().err

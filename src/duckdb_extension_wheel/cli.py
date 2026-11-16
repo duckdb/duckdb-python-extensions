@@ -47,7 +47,7 @@ def _build_command(args):
         keywords=args.keyword or (),
     )
 
-    wheels = build_wheels(args.binaries, metadata, args.out_dir, duckdb_version=args.duckdb_version)
+    wheels = build_wheels(args.binaries, metadata, args.out_dir, duckdb_version=args.duckdb_version, info_path=args.info, core=args.core_extension)
 
     for wheel in wheels:
         print(wheel)
@@ -81,6 +81,8 @@ def main(argv=None):
     build_parser.add_argument("--name", required=True, help="Project name")
     build_parser.add_argument("--version", required=True, help="Wheel version")
     build_parser.add_argument("--duckdb-version", help="DuckDB version (required for C_STRUCT binaries)")
+    build_parser.add_argument("--info", help="The <name>.duckdb_extension.info file DuckDB wrote when it installed the extension (default: the one beside the binary)")
+    build_parser.add_argument("--core-extension", action="store_true", help="The binary is signed with a DuckDB core key and needs no install information (one found beside it is still shipped)")
     build_parser.add_argument("--requires", action="append", help="Dependency (repeatable)")
     build_parser.add_argument("--summary", help="One-line summary")
     build_parser.add_argument("--description-file", help="Path to description file")

@@ -1,0 +1,39 @@
+name: Release duckdb-extension-wheel
+
+# A tag v<version> matching the version in pyproject.toml publishes the tool to pypi.org through trusted
+# publishing: the project duckdb-extension-wheel has a publisher for this workflow and the pypi environment.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Check that the tag names the version in pyproject.toml
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(uv run --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')
+          if [ "$TAG" != "v$version" ]; then echo "tag $TAG does not match version $version"; exit 1; fi
+
+      - name: Run the tests
+        run: uv run --no-project --with pytest python -m pytest -q tests
+
+      - name: Build the sdist and the wheel
+        run: uv build
+
+      - name: Publish to pypi.org
+        run: uv publish --trusted-publishing always dist/*

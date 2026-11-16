@@ -79,7 +79,7 @@ class TestDownloadCli:
 def _host_wheel(tmp_path, **metadata):
     binary = tmp_path / "geo.duckdb_extension"
     binary.write_bytes(synthetic_binary("geo", host_server_platform(), "v2.0.0"))
-    return tool.write_wheel(tool.inspect_extension(str(binary)), tool.WheelMetadata(name="acme-geo", version="1.0.0", **metadata), str(tmp_path / "dist"))
+    return tool.write_wheel(tool.inspect_extension(str(binary), core=True), tool.WheelMetadata(name="acme-geo", version="1.0.0", **metadata), str(tmp_path / "dist"))
 
 
 def test_non_utf8_description_file_is_refused(tmp_path):
@@ -146,14 +146,14 @@ def test_a_name_with_a_letter_that_only_folds_to_ascii_is_refused():
 
 
 def test_no_binaries_make_no_wheels(tmp_path):
-    assert tool.build_wheels([], tool.WheelMetadata(name="acme-geo", version="1.0.0"), str(tmp_path)) == []
+    assert tool.build_wheels([], tool.WheelMetadata(name="acme-geo", version="1.0.0"), str(tmp_path), core=True) == []
 
 
 def test_build_into_an_unusable_directory_is_an_error(tmp_path, capsys):
     binary = tmp_path / "geo.duckdb_extension"
     binary.write_bytes(synthetic_binary("geo", "linux_amd64", "v2.0.0"))
     (tmp_path / "afile").write_text("")
-    assert main(["build", "--name", "acme-geo", "--version", "1.0.0", "--out-dir", str(tmp_path / "afile" / "sub"), str(binary)]) == 1
+    assert main(["build", "--core-extension", "--name", "acme-geo", "--version", "1.0.0", "--out-dir", str(tmp_path / "afile" / "sub"), str(binary)]) == 1
     assert capsys.readouterr().err.startswith("error: ")
 
 

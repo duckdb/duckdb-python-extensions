@@ -183,6 +183,8 @@ def write_wheel(extension, metadata, out_dir):
 
             binary_path = f"{data_dir}/platlib/.duckdb_extensions/v{extension.duckdb_version}/{server_platform}/{extension.name}.duckdb_extension"
             _zip_entry(zf, binary_path, extension.data, records)
+            if extension.info is not None:
+                _zip_entry(zf, binary_path + ".info", extension.info, records)
 
             _zip_entry(zf, f"{dist_info}/METADATA", _generate_metadata(metadata).encode("utf-8"), records)
 
@@ -207,10 +209,12 @@ def write_wheel(extension, metadata, out_dir):
     return wheel_path
 
 
-def build_wheels(paths, metadata, out_dir, duckdb_version=None):
+def build_wheels(paths, metadata, out_dir, duckdb_version=None, info_path=None, core=False):
+    if info_path is not None and len(paths) != 1:
+        raise WheelError("--info names one file, so give one binary with it; with several binaries put each <name>.duckdb_extension.info beside its binary")
     extensions = []
     for path in paths:
-        ext = inspect_extension(path, duckdb_version=duckdb_version)
+        ext = inspect_extension(path, duckdb_version=duckdb_version, info_path=info_path, core=core)
         extensions.append(ext)
 
     if not extensions:

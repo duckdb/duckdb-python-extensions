@@ -33,6 +33,10 @@ The registry in `src/duckdb_extensions/registry.py` is the list of what gets pub
 
 `.github/workflows/status.yml` publishes, on GitHub Pages, which wheels exist per DuckDB version and platform: after every publish run, daily, and by hand. `scripts/status_page.py` gathers the state from extensions.duckdb.org, pypi.org and test.pypi.org and writes `index.html` and `status.json`. A cell is published (on pypi.org), staged (a staging wheel on test.pypi, not yet promoted), waiting (a required extension is not published for that platform), late (pypi.org no longer accepts files for that release), available (served, not yet built) or absent (not served). The page also lists the duckdb-cli wheels per version and platform and the `duckdb` module's wheels per Python tag and platform, since the extension wheels themselves are `py3-none` and independent of the Python version. Pages must be set to deploy from GitHub Actions in the repository settings.
 
+## Releasing the tool
+
+A tag `v<version>` that matches the version in `pyproject.toml` runs `.github/workflows/release.yml`, which tests, builds and publishes `duckdb-extension-wheel` to pypi.org through trusted publishing (publisher: this repository, `release.yml`, environment `pypi`).
+
 ## Development
 
     uv run --no-project --with pytest python -m pytest tests

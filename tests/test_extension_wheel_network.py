@@ -32,7 +32,7 @@ def _served(tmp_path, name, version):
 def _build(tmp_path, capsys, binary, *extra):
     from duckdb_extension_wheel.cli import main
 
-    assert main(["build", "--name", "acme-check", "--version", "0.1.0", *extra, "--out-dir", str(tmp_path / "dist"), binary]) == 0
+    assert main(["build", "--core-extension", "--name", "acme-check", "--version", "0.1.0", *extra, "--out-dir", str(tmp_path / "dist"), binary]) == 0
     return capsys.readouterr().out.strip()
 
 
