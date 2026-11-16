@@ -35,19 +35,35 @@ INSTALL_ATTEMPTS = 4
 INSTALL_RETRY_DELAY = 60
 
 
-def install(python, index, requirements, target):
-    """pip install into target from a simple index URL, or from a local directory of wheels when index is a
-    directory; a failing install from a URL is retried a few times, a failure here is a failed test."""
-    local = os.path.isdir(index)
-    source = ["--no-index", "--find-links", index] if local else ["--index-url", index]
-    cmd = [python, "-m", "pip", "install", "--quiet", "--disable-pip-version-check", "--only-binary", ":all:", "--no-deps", "--target", target, *source, *requirements]
-    attempts = 1 if local else INSTALL_ATTEMPTS
+def _source(index):
+    return ["--no-index", "--find-links", index] if os.path.isdir(index) else ["--index-url", index]
+
+
+def _pip(python, args, retry):
+    cmd = [python, "-m", "pip", *args]
+    attempts = INSTALL_ATTEMPTS if retry else 1
     for attempt in range(attempts):
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if proc.returncode == 0 or attempt + 1 == attempts:
             return proc
         time.sleep(INSTALL_RETRY_DELAY)
     return proc
+
+
+def install(python, target, wanted, downloads):
+    """Install wheels from several sources into one target directory with a single pip install.
+
+    wanted is a list of (requirement, index) pairs, index a simple index URL or a local directory of
+    wheels. Each wheel is first downloaded into `downloads` from its own index (retried for a URL, since
+    a staging upload takes a moment to appear), then one `pip install --target` places them all: pip's
+    target mode moves whole top-level directories and refuses to merge into one that exists, so two
+    installs into one target would silently drop the second wheel's files."""
+    common = ["--quiet", "--disable-pip-version-check", "--only-binary", ":all:", "--no-deps"]
+    for requirement, index in wanted:
+        proc = _pip(python, ["download", *common, "--dest", downloads, *_source(index), requirement], retry=not os.path.isdir(index))
+        if proc.returncode != 0:
+            return proc
+    return _pip(python, ["install", *common, "--target", target, "--no-index", "--find-links", downloads, *(r for r, _ in wanted)], retry=False)
 
 
 def verdict(returncode, stdout, name, ext_dir):
@@ -110,10 +126,9 @@ def run(version, wheel_version, platform, extensions, index, results_path, relea
             target = os.path.join(tmp, "site", name)
             ext_dir = os.path.join(target, ".duckdb_extensions")
             try:
-                needed = required_releases(name, version)
-                pip = install(python, release_index if not os.path.isdir(index) else index, needed, target) if needed else None
-                if pip is None or pip.returncode == 0:
-                    pip = install(python, index, [f"{project_name(name)}=={wheel_version}"], target)
+                wanted = [(req, release_index) for req in required_releases(name, version)]
+                wanted.append((f"{project_name(name)}=={wheel_version}", index))
+                pip = install(python, target, wanted, os.path.join(tmp, "downloads", name))
                 if pip.returncode != 0:
                     _record(results, results_path, key, False, "pip: " + (pip.stdout + pip.stderr).strip())
                     continue
