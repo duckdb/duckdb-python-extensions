@@ -21,8 +21,8 @@ def test_configured_extensions_reads_the_cmake_file_names_at_the_tag():
 
 def test_unregistered_keeps_only_unknown_names_the_server_serves():
     served = {
-        "https://extensions.duckdb.org/v2.0.0/linux_amd64/glue.duckdb_extension.gz",
-        "https://extensions.duckdb.org/v2.0.0/osx_arm64/glue.duckdb_extension.gz",
+        "https://extensions.duckdb.org/v2.0.0/linux_amd64/sirius.duckdb_extension.gz",
+        "https://extensions.duckdb.org/v2.0.0/osx_arm64/sirius.duckdb_extension.gz",
     }
     asked = []
 
@@ -30,9 +30,9 @@ def test_unregistered_keeps_only_unknown_names_the_server_serves():
         asked.append(url)
         return 200 if url in served else 404
 
-    result = unregistered("2.0.0", ["avro", "glue", "mysql_scanner", "test-utils"], head=head)
+    result = unregistered("2.0.0", ["avro", "sirius", "mysql_scanner", "test-utils"], head=head)
 
-    assert result == {"glue": ["linux-amd64", "osx-arm64"]}
+    assert result == {"sirius": ["linux-amd64", "osx-arm64"]}
     assert not any("/avro." in u or "/mysql_scanner." in u for u in asked), "registry names are not asked for"
     assert sum(1 for u in asked if "/test-utils." in u) == 8
 

@@ -17,6 +17,7 @@ EXTENSIONS = {
     "encodings": "encodings",
     "excel": "excel",
     "fts": "fts",
+    "glue": "glue",
     "httpfs": "httpfs",
     "iceberg": "iceberg",
     "inet": "inet",

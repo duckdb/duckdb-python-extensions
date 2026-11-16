@@ -11,7 +11,7 @@ from duckdb_extensions.registry import (
     wheel_filename,
 )
 
-# Project suffix -> file name on the extension server: the 28 served extensions the CLI loads from a file.
+# Project suffix -> file name on the extension server: the 29 served extensions the CLI loads from a file.
 SERVED_CORE_EXTENSIONS = {
     "avro": "avro",
     "aws": "aws",
@@ -22,6 +22,7 @@ SERVED_CORE_EXTENSIONS = {
     "encodings": "encodings",
     "excel": "excel",
     "fts": "fts",
+    "glue": "glue",
     "httpfs": "httpfs",
     "iceberg": "iceberg",
     "inet": "inet",
