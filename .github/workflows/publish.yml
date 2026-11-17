@@ -33,6 +33,11 @@ on:
         required: false
         type: string
         default: ""
+      issue:
+        description: "Number of the issue that records the replacement; the run links itself there and reports how it ended"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -50,10 +55,20 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     outputs:
       items: ${{ steps.plan.outputs.items }}
       platforms: ${{ steps.plan.outputs.platforms }}
     steps:
+      - name: Link this run from the issue that records the replacement
+        if: inputs.issue != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ inputs.issue }}" --repo "${{ github.repository }}" --body "Publish run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. It stages and tests the post release wheels, then waits for approval in the post-release-approval environment."
+
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v6
@@ -316,3 +331,58 @@ jobs:
             fi
           done
           uv publish --trusted-publishing always --check-url https://pypi.org/simple/ dist/*.whl
+
+  # The issue that records the replacement learns how the run ended: closed when every item's wheels are on
+  # pypi.org, otherwise a comment with what failed and where to read the logs.
+  record:
+    needs: [plan, stage, test, report, approve, promote]
+    if: ${{ always() && inputs.issue != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+
+      - name: Report the outcome on the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue }}
+          ITEMS: ${{ inputs.replacements }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULTS: ${{ needs.stage.result }} ${{ needs.test.result }} ${{ needs.report.result }} ${{ needs.approve.result }} ${{ needs.promote.result }}
+        run: |
+          if ls results/*.json > /dev/null 2>&1; then jq -s 'add // {}' results/*.json > all.json; else echo '{}' > all.json; fi
+          missing=0
+          {
+            echo "## Outcome of the publish run"
+            echo "Jobs (stage, test, report, approve, promote): $RESULTS"
+            echo
+            for row in $(jq -r '.[] | @base64' <<< "$ITEMS"); do
+              item=$(base64 -d <<< "$row")
+              extension=$(jq -r .extension <<< "$item"); wheel_version=$(jq -r .wheel_version <<< "$item"); wanted=$(jq -r '.platforms | length' <<< "$item")
+              project="duckdb-core-ext-$extension"
+              have=$(curl -sf -H 'Accept: application/vnd.pypi.simple.v1+json' "https://pypi.org/simple/$project/" | jq --arg v "$wheel_version" '[.files[] | select(.filename | split("-")[1] == $v)] | length' || echo 0)
+              if [ "$have" -ge "$wanted" ]; then
+                echo "- $project $wheel_version: published, $have wheel(s) on pypi.org"
+              else
+                missing=$((missing + 1))
+                echo "- $project $wheel_version: NOT published ($have of $wanted wheels on pypi.org)"
+              fi
+            done
+            echo
+            echo "Staging tests:"
+            jq -r 'to_entries[] | "- \(if .value.ok then "ok" else "FAIL" end) \(.key)\(if .value.ok then "" else ": " + (.value.detail | tostring | .[0:400]) end)"' all.json
+            echo
+            if [ "${{ needs.approve.result }}" = "failure" ]; then echo "The approval was rejected."; fi
+            echo "Logs: $RUN_URL"
+          } > outcome.md
+          gh issue comment "$ISSUE" --repo "${{ github.repository }}" --body-file outcome.md
+          if [ "$missing" = "0" ]; then
+            gh issue close "$ISSUE" --repo "${{ github.repository }}" --comment "Every post release item is on pypi.org."
+          fi
