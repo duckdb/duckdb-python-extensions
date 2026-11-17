@@ -106,5 +106,56 @@ def test_json_round_trips_and_carries_the_legend():
     assert data["extensions"]["2.0.0"]["tpch"]["linux-amd64"] == "published"
     assert data["duckdb_cli"]["2.0.0"]["linux-amd64"] is True
     assert data["duckdb_module"]["2.0.0"] == {"cp312": ["win_amd64"]}
-    assert set(data["legend"]) == {PUBLISHED, STAGED, WAITING, LATE, AVAILABLE, ABSENT}
+    assert set(data["legend"]) == {PUBLISHED, STAGED, WAITING, LATE, AVAILABLE, ABSENT, "replaced"}
     assert data["unregistered"]["2.0.0"] == {"glue": ["linux-amd64", "osx-arm64"]}
+
+
+class TestReplaced:
+    FINDINGS = {
+        "items": [{"version": "2.0.0", "extension": "tpch", "platforms": ["linux-amd64", "osx-arm64"], "wheel_version": "2.0.0.post1", "changed": ["linux-amd64"]}],
+        "findings": [
+            {"version": "2.0.0", "extension": "tpch", "platform": "linux-amd64", "outcome": "replaced", "recorded": {"extension_version": "aaa"}, "current": {"extension_version": "bbb"}},
+            {"version": "2.0.0", "extension": "tpch", "platform": "osx-arm64", "outcome": "headers_only", "recorded": {"extension_version": "aaa"}, "current": {"extension_version": "aaa"}},
+        ],
+    }
+
+    def _cells(self):
+        return {"tpch": {"linux-amd64": PUBLISHED, "osx-arm64": PUBLISHED}}
+
+    def test_a_changed_binary_marks_its_cell_until_the_post_release_is_published(self):
+        from duckdb_extensions.status import REPLACED, apply_findings
+
+        cells = self._cells()
+        detail = apply_findings(cells, "2.0.0", self.FINDINGS, {"tpch": _pub("2.0.0", [f"duckdb_core_ext_tpch-2.0.0-py3-none-{TAG}.whl"])})
+        assert cells == {"tpch": {"linux-amd64": REPLACED, "osx-arm64": PUBLISHED}}
+        assert detail == {"tpch": {"linux-amd64": {"outcome": "replaced", "old": "aaa", "new": "bbb", "wheel_version": "2.0.0.post1"}}}
+
+    def test_a_published_post_release_clears_the_mark(self):
+        from duckdb_extensions.status import apply_findings
+
+        cells = self._cells()
+        on_pypi = {"tpch": {**_pub("2.0.0", []), **_pub("2.0.0.post1", [f"duckdb_core_ext_tpch-2.0.0.post1-py3-none-{TAG}.whl"])}}
+        assert apply_findings(cells, "2.0.0", self.FINDINGS, on_pypi) == {}
+        assert cells["tpch"]["linux-amd64"] == PUBLISHED
+
+    def test_other_versions_and_outcomes_are_left_alone(self):
+        from duckdb_extensions.status import apply_findings
+
+        cells = self._cells()
+        assert apply_findings(cells, "1.5.6", self.FINDINGS, {}) == {}
+        assert cells == self._cells()
+
+    def test_render_and_json_carry_the_detail(self):
+        from duckdb_extensions.status import REPLACED
+
+        status = Status(generated=NOW, versions=["2.0.0"])
+        status.extensions["2.0.0"] = {"tpch": {"linux-amd64": REPLACED}}
+        status.replaced["2.0.0"] = {"tpch": {"linux-amd64": {"outcome": "replaced", "old": "aaa", "new": "bbb", "wheel_version": "2.0.0.post1"}}}
+        page = render(status)
+        assert '<td class="replaced" title="replaced upstream: aaa to bbb; 2.0.0.post1 waits for approval">◆</td>' in page
+        assert "1 replaced" in page
+        assert json.loads(to_json(status))["replaced"] == status.replaced
+
+    def test_no_findings_means_no_replaced_key_content(self):
+        status = Status(generated=NOW, versions=["2.0.0"])
+        assert json.loads(to_json(status))["replaced"] == {}

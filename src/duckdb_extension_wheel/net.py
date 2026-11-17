@@ -39,9 +39,19 @@ def _with_retries(req, timeout, read):
 
 def head(url):
     """The status of a HEAD request: 200, 404, or another non-5xx code."""
-    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
-    status, _ = _with_retries(req, 30, lambda resp: None)
+    status, _ = head_headers(url)
     return status
+
+
+def _file_headers(resp):
+    return {"etag": resp.headers.get("ETag"), "last_modified": resp.headers.get("Last-Modified")}
+
+
+def head_headers(url):
+    """The status of a HEAD request and the file's ETag and Last-Modified (None each when the server sends none)."""
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
+    status, headers = _with_retries(req, 30, _file_headers)
+    return status, headers or {"etag": None, "last_modified": None}
 
 
 def get_json(url, accept, token=None):
@@ -58,10 +68,22 @@ def get_json(url, accept, token=None):
 
 def get_bytes(url):
     """The body of a GET, or None for a 404."""
+    body, _ = get_bytes_headers(url)
+    return body
+
+
+def get_bytes_headers(url):
+    """The body of a GET and the file's ETag and Last-Modified; (None, None) for a 404."""
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    status, body = _with_retries(req, 300, lambda resp: resp.read())
+    status, result = _with_retries(req, 300, lambda resp: (resp.read(), _file_headers(resp)))
     if status == 404:
-        return None
+        return None, None
     if status >= 400:
         raise urllib.error.HTTPError(url, status, "error", {}, io.BytesIO())
-    return body
+    return result
+
+
+def get_text(url):
+    """The body of a GET as UTF-8 text, or None for a 404."""
+    body = get_bytes(url)
+    return None if body is None else body.decode("utf-8")

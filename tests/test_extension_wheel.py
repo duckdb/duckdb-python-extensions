@@ -267,6 +267,13 @@ class TestWheelLayout:
             tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(name=name), str(tmp_path / "out"))
 
 
+def _provenance(tmp_path, extra=""):
+    """The section every wheel ends with: what the binary says about itself."""
+    with open(_binary(tmp_path), "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    return f"## Provenance\n\n- extension_version: v0.0.1\n- sha256: {digest}\n{extra}"
+
+
 class TestMetadata:
     """the METADATA file."""
 
@@ -274,8 +281,8 @@ class TestMetadata:
         path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(**kw), str(tmp_path / "out"))
         return _metadata_text(path)
 
-    def test_only_the_required_fields(self, tmp_path):
-        assert self._text(tmp_path) == "Metadata-Version: 2.1\nName: acme-duckdb-geo\nVersion: 0.3.1\nRequires-Python: >=3.8\n"
+    def test_only_the_required_fields_and_the_provenance(self, tmp_path):
+        assert self._text(tmp_path) == "Metadata-Version: 2.1\nName: acme-duckdb-geo\nVersion: 0.3.1\nRequires-Python: >=3.8\nDescription-Content-Type: text/markdown\n\n" + _provenance(tmp_path)
 
     def test_every_field_in_order(self, tmp_path):
         text = self._text(
@@ -301,15 +308,36 @@ class TestMetadata:
             "Project-URL: Issues, https://example.com/geo/issues\n"
             "Description-Content-Type: text/markdown\n"
             "\n"
-            "# Geo\n\nLong text.\n"
+            "# Geo\n\nLong text.\n\n" + _provenance(tmp_path)
         )
 
     def test_license_expression_raises_the_metadata_version(self, tmp_path):
         text = self._text(tmp_path, license_expression="MIT OR Apache-2.0", summary="Geo")
-        assert text == "Metadata-Version: 2.4\nName: acme-duckdb-geo\nVersion: 0.3.1\nSummary: Geo\nLicense-Expression: MIT OR Apache-2.0\nRequires-Python: >=3.8\n"
+        assert text == "Metadata-Version: 2.4\nName: acme-duckdb-geo\nVersion: 0.3.1\nSummary: Geo\nLicense-Expression: MIT OR Apache-2.0\nRequires-Python: >=3.8\nDescription-Content-Type: text/markdown\n\n" + _provenance(tmp_path)
 
     def test_description_without_a_content_type_is_plain_text(self, tmp_path):
-        assert self._text(tmp_path, description="Plain.\n").endswith("Description-Content-Type: text/plain\n\nPlain.\n")
+        assert self._text(tmp_path, description="Plain.\n").endswith("Description-Content-Type: text/plain\n\nPlain.\n\n" + _provenance(tmp_path))
+
+    def test_description_without_a_final_newline_gets_one_blank_line_before_the_provenance(self, tmp_path):
+        assert self._text(tmp_path, description="Plain.").endswith("\n\nPlain.\n\n" + _provenance(tmp_path))
+
+    def test_caller_lines_follow_the_binary_lines(self, tmp_path):
+        text = self._text(tmp_path, provenance=[("source", "https://example.com/geo.gz"), ("etag", '"abc"')])
+        assert text.endswith(_provenance(tmp_path, '- source: https://example.com/geo.gz\n- etag: "abc"\n'))
+        assert tool.read_provenance(text) == {"extension_version": "v0.0.1", "sha256": hashlib.sha256(open(_binary(tmp_path), "rb").read()).hexdigest(), "source": "https://example.com/geo.gz", "etag": '"abc"'}
+
+    def test_read_provenance_without_the_section_is_none(self):
+        assert tool.read_provenance("Metadata-Version: 2.1\nName: x\nVersion: 1\n") is None
+        assert tool.read_provenance("Metadata-Version: 2.1\nName: x\nVersion: 1\n\n# A description\n\n- not: provenance\n") is None
+
+    def test_read_provenance_stops_at_the_next_heading(self):
+        text = "Name: x\n\n## Provenance\n\n- extension_version: v1\n- sha256: ab\n\n## After\n\n- other: thing\n"
+        assert tool.read_provenance(text) == {"extension_version": "v1", "sha256": "ab"}
+
+    @pytest.mark.parametrize("line", [("Key", "v"), ("two words", "v"), ("ok", "two\nlines")])
+    def test_a_provenance_line_must_be_a_simple_key_and_one_line(self, tmp_path, line):
+        with pytest.raises(tool.WheelError, match="provenance line"):
+            self._text(tmp_path, provenance=[line])
 
     def test_wheel_version_is_independent_of_the_duckdb_version(self, tmp_path):
         path = tool.write_wheel(tool.inspect_extension(_binary(tmp_path), core=True), _metadata(version="2026.11.9.post1"), str(tmp_path / "out"))
@@ -422,7 +450,7 @@ class TestCommandLine:
         assert _metadata_text(capsys.readouterr().out.strip()) == (
             "Metadata-Version: 2.4\nName: acme-duckdb-geo\nVersion: 0.3.1\nSummary: Geometry\nKeywords: duckdb,geo\n"
             "License-Expression: MIT\nRequires-Python: >=3.10\nRequires-Dist: duckdb-cli==2.0.0\nRequires-Dist: shapely>=2\n"
-            "Project-URL: Source, https://example.com/geo\nDescription-Content-Type: text/x-rst\n\nGeo\n===\n"
+            "Project-URL: Source, https://example.com/geo\nDescription-Content-Type: text/x-rst\n\nGeo\n===\n\n" + _provenance(tmp_path)
         )
 
     @pytest.mark.parametrize("suffix, content_type", [(".md", "text/markdown"), (".markdown", "text/markdown"), (".rst", "text/x-rst"), (".txt", "text/plain"), ("", "text/plain")])
@@ -480,6 +508,8 @@ class TestReferenceWheels:
     def test_command_line_reproduces_the_reference(self, tmp_path, capsys, case):
         name, platform, version, wheel_version, server_file = case[:5]
         head, body = _metadata_text(_reference(case)).split("\n\n", 1)
+        # The tool appends the provenance of the binary itself; the author gives the description without it.
+        body = body.split("\n\n## Provenance\n")[0] + "\n"
         fields = [line.split(": ", 1) for line in head.splitlines()]
         argv = ["build", "--core-extension", "--name", dict(fields)["Name"], "--version", wheel_version, "--duckdb-version", version, "--summary", dict(fields)["Summary"]]
         argv += [a for key, value in fields if key == "Requires-Dist" for a in ("--requires", value)]
@@ -505,7 +535,7 @@ class TestPipeline:
             footer_platform = "linux_arm64" if platform == refused else server_platform(platform)
             with open(path, "wb") as f:
                 f.write(synthetic_binary(name, footer_platform, f"v{version}"))
-            return path
+            return path, ()
 
         return download
 

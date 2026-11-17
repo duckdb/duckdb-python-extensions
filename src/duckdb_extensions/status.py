@@ -27,6 +27,7 @@ WAITING = "waiting"  # the server has it, but a required extension is not releas
 LATE = "late"  # the server has it, pypi.org refuses new files for this release
 AVAILABLE = "available"  # the server has it, nothing published or staged
 ABSENT = "absent"  # the server does not serve it for this platform
+REPLACED = "replaced"  # published, but the server now serves another binary; a post release waits for approval
 
 LEGEND = {
     PUBLISHED: "on pypi.org",
@@ -35,6 +36,7 @@ LEGEND = {
     LATE: "missing, and pypi.org no longer accepts files for this release",
     AVAILABLE: "served by extensions.duckdb.org, not yet built",
     ABSENT: "not served by extensions.duckdb.org for this platform",
+    REPLACED: "published, but extensions.duckdb.org now serves another binary; a post release waits for approval",
 }
 
 CLI_PLATFORMS = ["linux-amd64", "linux-arm64", "osx-amd64", "osx-arm64", "windows-amd64", "windows-arm64"]
@@ -48,6 +50,7 @@ class Status:
     cli: dict = field(default_factory=dict)  # version -> platform -> bool
     unregistered: dict = field(default_factory=dict)  # version -> server name -> platforms
     module: dict = field(default_factory=dict)  # version -> python tag -> sorted platform tags
+    replaced: dict = field(default_factory=dict)  # version -> extension -> platform -> {old, new, wheel_version}
 
 
 def _staged_platforms(state, version):
@@ -89,6 +92,32 @@ def apply_requirements(cells, version, on_pypi_all):
                     break
 
 
+def apply_findings(cells, version, findings, on_pypi_all):
+    """Mark the cells whose binary changed on the server, from the detect workflow's findings, until the post
+    release the findings call for is on pypi.org. Returns the detail per marked cell."""
+    detail = {}
+    items = {(i["version"], i["extension"]): i for i in findings.get("items", []) + findings.get("failed", [])}
+    for f in findings.get("findings", []):
+        if f["version"] != version or f["outcome"] not in ("rebuilt", "replaced"):
+            continue
+        item = items.get((version, f["extension"]))
+        if item is None:
+            continue
+        release = on_pypi_all.get(f["extension"], {}).get(item["wheel_version"])
+        if release and wheel_filename(f["extension"], item["wheel_version"], f["platform"]) in release.files:
+            continue
+        if cells.get(f["extension"], {}).get(f["platform"]) != PUBLISHED:
+            continue
+        cells[f["extension"]][f["platform"]] = REPLACED
+        detail.setdefault(f["extension"], {})[f["platform"]] = {
+            "outcome": f["outcome"],
+            "old": (f.get("recorded") or {}).get("extension_version", ""),
+            "new": (f.get("current") or {}).get("extension_version", ""),
+            "wheel_version": item["wheel_version"],
+        }
+    return detail
+
+
 def module_wheels(files, version):
     """{python tag: sorted platform tags} of the duckdb module's wheels for a version."""
     out = {}
@@ -104,8 +133,9 @@ def module_wheels(files, version):
     return {k: sorted(v) for k, v in sorted(out.items())}
 
 
-def gather(minimum, now=None, token=None):
-    """Collect the state of every extension wheel, the duckdb-cli wheels and the duckdb module wheels."""
+def gather(minimum, now=None, token=None, findings=None):
+    """Collect the state of every extension wheel, the duckdb-cli wheels and the duckdb module wheels; findings
+    is the detect workflow's latest findings.json as a dict, or None."""
     now = now or datetime.now(timezone.utc)
     versions = stable_versions(minimum, token=token)
     status = Status(generated=now, versions=sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".")), reverse=True))
@@ -116,6 +146,8 @@ def gather(minimum, now=None, token=None):
         served = available(version, list(EXTENSIONS), list(PLATFORMS), skip=have) | have
         cells = {e: {p: classify(version, e, p, served, on_pypi[e], on_test[e], now) for p in PLATFORMS} for e in EXTENSIONS}
         apply_requirements(cells, version, on_pypi)
+        if findings:
+            status.replaced[version] = apply_findings(cells, version, findings, on_pypi)
         status.extensions[version] = cells
         status.unregistered[version] = unregistered(version, configured_extensions(version, token=token))
     cli = published_project("duckdb-cli", PYPI)
@@ -138,6 +170,7 @@ def to_json(status):
             "duckdb_cli": status.cli,
             "duckdb_module": status.module,
             "unregistered": status.unregistered,
+            "replaced": status.replaced,
         },
         indent=1,
         sort_keys=True,
@@ -152,14 +185,16 @@ th, td { border: 1px solid #ddd; padding: 3px 7px; text-align: center; white-spa
 th { background: #f4f4f4; } td.name { text-align: left; font-family: ui-monospace, monospace; }
 td.published { background: #cfe8cf; } td.staged { background: #fff1b8; } td.waiting { background: #e3d7f3; }
 td.late { background: #f6c9c9; } td.available { background: #e9e9e9; } td.absent { color: #aaa; }
+td.replaced { background: #f9d9a8; }
 td.yes { background: #cfe8cf; } td.no { background: #f6c9c9; }
 .legend span { display: inline-block; padding: 1px 8px; margin: 0 6px 6px 0; border: 1px solid #ccc; border-radius: 3px; }
 .legend .published { background: #cfe8cf; } .legend .staged { background: #fff1b8; } .legend .waiting { background: #e3d7f3; }
 .legend .late { background: #f6c9c9; } .legend .available { background: #e9e9e9; } .legend .absent { color: #aaa; }
+.legend .replaced { background: #f9d9a8; }
 p.note { color: #555; }
 """
 
-_SYMBOL = {PUBLISHED: "●", STAGED: "◐", WAITING: "◇", LATE: "✕", AVAILABLE: "○", ABSENT: "·"}
+_SYMBOL = {PUBLISHED: "●", STAGED: "◐", WAITING: "◇", LATE: "✕", AVAILABLE: "○", ABSENT: "·", REPLACED: "◆"}
 
 
 def _table(headers, rows):
@@ -193,9 +228,13 @@ def render(status):
             for p in platforms:
                 state = cells.get(e, {}).get(p, ABSENT)
                 counts[state] += 1
-                row.append(f'<td class="{state}" title="{html.escape(LEGEND[state])}">{_SYMBOL[state]}</td>')
+                title = LEGEND[state]
+                change = status.replaced.get(version, {}).get(e, {}).get(p)
+                if change:
+                    title = f"{change['outcome']} upstream: {change['old']} to {change['new']}; {change['wheel_version']} waits for approval"
+                row.append(f'<td class="{state}" title="{html.escape(title)}">{_SYMBOL[state]}</td>')
             rows.append((project_name(e), row))
-        summary = ", ".join(f"{counts[k]} {k}" for k in (PUBLISHED, STAGED, WAITING, LATE, AVAILABLE) if counts[k])
+        summary = ", ".join(f"{counts[k]} {k}" for k in (PUBLISHED, REPLACED, STAGED, WAITING, LATE, AVAILABLE) if counts[k])
         parts.append(f"<h2>DuckDB {html.escape(version)}</h2><p class=\"note\">{html.escape(summary)}</p>")
         parts.append(_table(platforms, rows))
         new_names = status.unregistered.get(version, {})

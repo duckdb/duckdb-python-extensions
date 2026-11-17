@@ -1,0 +1,113 @@
+name: Detect replaced binaries
+
+# Compares every published extension wheel with the binary extensions.duckdb.org serves today (see
+# src/duckdb_extensions/replaced.py). A changed binary becomes a post release item, dispatched to the publish
+# workflow, where a person approves the upload; this workflow publishes nothing.
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # after the nightly publish, before the status page
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Only this DuckDB version (default: every stable release at or above the minimum)"
+        required: false
+        type: string
+      extension:
+        description: "Only this extension, by project name such as httpfs (default: all)"
+        required: false
+        type: string
+      dispatch:
+        description: "Dispatch the publish workflow with the post release items found (off: report only)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: detect
+
+env:
+  MINIMUM_VERSION: "1.5.0"
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Compare the published wheels with the server's binaries
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ONLY_VERSION: ${{ inputs.version }}
+          ONLY_EXTENSION: ${{ inputs.extension }}
+        run: |
+          flags=()
+          if [ -n "$ONLY_VERSION" ]; then flags+=(--version "$ONLY_VERSION"); fi
+          if [ -n "$ONLY_EXTENSION" ]; then flags+=(--extension "$ONLY_EXTENSION"); fi
+          uv run --no-project scripts/detect_replaced.py --minimum "$MINIMUM_VERSION" --index https://pypi.org \
+            --test-index https://test.pypi.org --github-token "$GH_TOKEN" --out findings.json --summary summary.md "${flags[@]}"
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "items=$(jq -c '.items' findings.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: findings
+          path: |
+            findings.json
+            summary.md
+
+      # A publish run that waits for approval holds its post release items; dispatching the same items again
+      # would only queue a second approval. The nightly tries again once the waiting run has been decided.
+      - name: Check for a publish run that still waits for approval
+        id: waiting
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # When the question cannot be answered, nothing is dispatched tonight and the run itself goes on.
+          waiting=$(gh run list --repo "${{ github.repository }}" --workflow publish.yml --status waiting --limit 1 --json databaseId --jq '.[0].databaseId // empty') || waiting="unknown"
+          echo "run=$waiting" >> "$GITHUB_OUTPUT"
+          if [ -n "$waiting" ]; then echo "publish run $waiting waits for approval, or the check failed; nothing is dispatched tonight" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Open or update the issue that reports the change
+        if: steps.detect.outputs.items != '[]' && steps.waiting.outputs.run == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Core extension binaries replaced upstream"
+          DISPATCHING: ${{ github.event_name == 'schedule' || inputs.dispatch }}
+        run: |
+          {
+            echo "The nightly comparison found published wheels whose binary changed on extensions.duckdb.org."
+            if [ "$DISPATCHING" = "true" ]; then
+              echo "A publish run with the post release items waits for approval in the post-release-approval environment: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/publish.yml"
+            else
+              echo "This run reported only; nothing was dispatched."
+            fi
+            echo
+            cat summary.md
+            echo
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > issue.md
+          number=$(gh issue list --repo "${{ github.repository }}" --state open --search "\"$TITLE\" in:title" --json number,title --jq '[.[] | select(.title == env.TITLE) | .number] | first // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "${{ github.repository }}" --body-file issue.md
+          else
+            gh issue create --repo "${{ github.repository }}" --title "$TITLE" --body-file issue.md
+          fi
+
+      - name: Dispatch the publish workflow with the post release items
+        if: steps.detect.outputs.items != '[]' && steps.waiting.outputs.run == '' && (github.event_name == 'schedule' || inputs.dispatch)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ITEMS: ${{ steps.detect.outputs.items }}
+        run: |
+          gh workflow run publish.yml --repo "${{ github.repository }}" -f replacements="$ITEMS" -f promote=true

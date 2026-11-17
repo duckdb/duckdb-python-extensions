@@ -6,12 +6,13 @@ on:
   schedule:
     - cron: "0 6 * * *" # after the nightly publish has finished
   workflow_run:
-    workflows: ["Publish extension wheels"]
+    workflows: ["Publish extension wheels", "Detect replaced binaries"]
     types: [completed]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -27,10 +28,17 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      - name: Fetch the latest findings of the detect workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh run list --repo "${{ github.repository }}" --workflow detect.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty') || run=""
+          if [ -n "$run" ]; then gh run download "$run" --repo "${{ github.repository }}" --name findings --dir findings || echo "no findings artifact"; fi
+
       - name: Gather the state of every wheel and render the page
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv run --no-project scripts/status_page.py --minimum 1.5.0 --out site --github-token "$GH_TOKEN"
+        run: uv run --no-project scripts/status_page.py --minimum 1.5.0 --out site --github-token "$GH_TOKEN" --findings findings/findings.json
 
       - uses: actions/upload-pages-artifact@v3
         with:
