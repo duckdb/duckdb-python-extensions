@@ -72,6 +72,8 @@ class Extension:
     # The install information DuckDB writes beside an extension it installs from a repository; a load of a
     # community extension needs it to trust the community keys. None for a core extension.
     info: bytes = None
+    # The extension's own version from the footer, for core extensions the commit it was built from.
+    extension_version: str = ""
 
 
 # DuckDB gained the extension_directories setting in 1.5.0; before that no wrapper can make it search the
@@ -144,7 +146,7 @@ def extension_from_bytes(name, data, duckdb_version=None, info=None):
     if not _contains_symbol(data, entry.encode("ascii"), allow_v2=footer.abi_type != "CPP"):
         raise WheelError(f"does not contain entry point: {entry}")
 
-    return Extension(name, pip_platform, version, footer.abi_type, data, info)
+    return Extension(name, pip_platform, version, footer.abi_type, data, info, footer.extension_version)
 
 
 def _read_info(path, info_path, core):

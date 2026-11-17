@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 
@@ -18,9 +19,14 @@ def _main(argv=None):
     parser.add_argument("--minimum", required=True, help="Oldest DuckDB version to show (e.g. 1.5.0)")
     parser.add_argument("--out", default="site", help="Output directory")
     parser.add_argument("--github-token", default=None, help="Token for the GitHub API (raises the rate limit)")
+    parser.add_argument("--findings", default=None, help="findings.json of the latest detect workflow run, to mark replaced binaries")
     args = parser.parse_args(argv)
 
-    status = gather(args.minimum, token=args.github_token)
+    findings = None
+    if args.findings and os.path.exists(args.findings):
+        with open(args.findings) as f:
+            findings = json.load(f)
+    status = gather(args.minimum, token=args.github_token, findings=findings)
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "index.html"), "w", encoding="utf-8") as f:
         f.write(render(status))

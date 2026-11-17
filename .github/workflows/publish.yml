@@ -2,7 +2,8 @@ name: Publish extension wheels
 
 # Every night: plan the wheels pypi.org lacks, build each once, upload a staging copy to test.pypi under a
 # .dev version, install that copy on every platform and load it in the matching DuckDB CLI, then upload
-# the production wheels of every item that passed everywhere. No human step.
+# the production wheels of every item that passed everywhere. No human step, except that a post release of a
+# binary replaced upstream (the replacements input, from detect.yml) waits for a reviewer before the upload.
 
 on:
   schedule:
@@ -27,12 +28,18 @@ on:
         required: false
         type: string
         default: "200"
+      replacements:
+        description: "Post release items from the detect workflow, as JSON; with it, planning is skipped, version and extension are ignored, and the upload needs approval"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
+# A run with post release items waits for approval, possibly for days; it must not hold up the nightly.
 concurrency:
-  group: publish
+  group: ${{ inputs.replacements != '' && 'publish-replacements' || 'publish' }}
 
 env:
   # Oldest DuckDB line to publish: 1.5.0 introduced extension_directories, and every published duckdb-cli is 1.5.0 or later.
@@ -51,6 +58,9 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
+      # A run with replacements builds exactly the post release items the detect workflow found; every item
+      # carries the wheel version to publish under. Every other run plans from the indexes, and its items'
+      # wheel version is the DuckDB version.
       - name: Find wheels pypi.org lacks
         id: plan
         env:
@@ -58,19 +68,24 @@ jobs:
           ONLY_VERSION: ${{ inputs.version }}
           ONLY_EXTENSION: ${{ inputs.extension }}
           LIMIT: ${{ inputs.limit || '200' }}
+          REPLACEMENTS: ${{ inputs.replacements }}
         run: |
-          flags=()
-          if [ -n "$ONLY_VERSION" ]; then flags+=(--version "$ONLY_VERSION"); fi
-          if [ -n "$ONLY_EXTENSION" ]; then flags+=(--extension "$ONLY_EXTENSION"); fi
-          uv run --no-project scripts/plan_wheels.py --minimum "$MINIMUM_VERSION" --index https://pypi.org \
-            --test-index https://test.pypi.org --limit "$LIMIT" --github-token "$GH_TOKEN" "${flags[@]}" > plan.json
-          items=$(jq -c '[.items[] | {version, extension, platforms: (.platforms | join(" "))}]' plan.json)
+          if [ -n "$REPLACEMENTS" ]; then
+            jq -n --argjson items "$REPLACEMENTS" '{items: $items, late: [], failed: [], waiting: [], unregistered: []}' > plan.json
+          else
+            flags=()
+            if [ -n "$ONLY_VERSION" ]; then flags+=(--version "$ONLY_VERSION"); fi
+            if [ -n "$ONLY_EXTENSION" ]; then flags+=(--extension "$ONLY_EXTENSION"); fi
+            uv run --no-project scripts/plan_wheels.py --minimum "$MINIMUM_VERSION" --index https://pypi.org \
+              --test-index https://test.pypi.org --limit "$LIMIT" --github-token "$GH_TOKEN" "${flags[@]}" > plan.json
+          fi
+          items=$(jq -c '[.items[] | {version, extension, wheel_version: (.wheel_version // .version), platforms: (.platforms | join(" "))}]' plan.json)
           platforms=$(jq -c '[.items[].platforms[]] | unique' plan.json)
           echo "items=$items" >> "$GITHUB_OUTPUT"
           echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
           {
             echo "## Wheels to build: $(jq '.items | length' plan.json) items, $(jq '[.items[].platforms | length] | add // 0' plan.json) wheels"
-            jq -r '.items[] | "- \(.extension) \(.version): \(.platforms | join(" "))"' plan.json
+            jq -r '.items[] | "- \(.extension) \(.wheel_version // .version): \(.platforms | join(" "))"' plan.json
             echo
             echo "## Late: pypi.org refuses new files for these releases"
             jq -r '.late[] | "- \(.extension) \(.version) \(.platform), release first uploaded \(.first_upload)"' plan.json
@@ -110,18 +125,19 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
 
-      - name: Build ${{ matrix.extension }} ${{ matrix.version }} once, as a production and a staging wheel
+      - name: Build ${{ matrix.extension }} ${{ matrix.wheel_version }} once, as a production and a staging wheel
         id: build
         continue-on-error: true
         env:
           VERSION: ${{ matrix.version }}
+          WHEEL_VERSION: ${{ matrix.wheel_version }}
           EXTENSION: ${{ matrix.extension }}
           PLATFORMS: ${{ matrix.platforms }}
         run: |
           flags=()
           for p in $PLATFORMS; do flags+=(--platform "$p"); done
           uv run --no-project scripts/build_extension_wheels.py --version "$VERSION" --extension "$EXTENSION" "${flags[@]}" \
-            --out-dir dist --stage-version "$VERSION$STAGE_SUFFIX" --stage-dir stage
+            --out-dir dist --wheel-version "$WHEEL_VERSION" --stage-version "$WHEEL_VERSION$STAGE_SUFFIX" --stage-dir stage
 
       # The upload is retried within the run; a file already uploaded by an earlier attempt is skipped by --check-url.
       - name: Upload the staging wheels to test.pypi
@@ -214,9 +230,50 @@ jobs:
           path: results-${{ matrix.platform }}.json
           if-no-files-found: ignore
 
-  promote:
+  # A post release replaces a binary users already have, so a person approves it: the environment
+  # post-release-approval has required reviewers and nothing else, and the promote job waits for this one.
+  # A post release replaces a binary users already have, so a person approves it. The report job writes what
+  # the staging tests found, so the reviewer reads it before deciding; the approve job carries the environment
+  # post-release-approval, which has required reviewers and nothing else, and runs no step of consequence; the
+  # promote job waits for it and still uploads only the items whose every platform passed.
+  report:
     needs: [plan, stage, test]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]' && (github.event_name == 'schedule' || inputs.promote) }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]' && inputs.replacements != '' && inputs.promote }}
+    runs-on: ubuntu-latest
+    outputs:
+      passing: ${{ steps.verdicts.outputs.passing }}
+    steps:
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+
+      - name: List the staging test verdicts for the reviewer
+        id: verdicts
+        run: |
+          if ls results/*.json > /dev/null 2>&1; then jq -s 'add // {}' results/*.json > all.json; else echo '{}' > all.json; fi
+          passing=$(jq '[.[] | select(.ok)] | length' all.json)
+          echo "passing=$passing" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Post release items waiting for approval: $passing passing platform test(s)"
+            jq -r 'to_entries[] | "- \(if .value.ok then "ok" else "FAIL" end) \(.key)"' all.json
+            echo
+            echo "Approve the post-release-approval deployment to upload the items whose every platform passed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  approve:
+    needs: report
+    if: ${{ !cancelled() && needs.report.result == 'success' && needs.report.outputs.passing != '0' }}
+    runs-on: ubuntu-latest
+    environment: post-release-approval
+    steps:
+      - run: echo "approved"
+
+  promote:
+    needs: [plan, stage, test, report, approve]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.items != '[]' && (github.event_name == 'schedule' || inputs.promote) && (inputs.replacements == '' || needs.approve.result == 'success') }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -241,7 +298,7 @@ jobs:
           name: wheels-${{ matrix.version }}-${{ matrix.extension }}
           path: dist
 
-      - name: Upload ${{ matrix.extension }} ${{ matrix.version }} to pypi.org when every platform passed
+      - name: Upload ${{ matrix.extension }} ${{ matrix.wheel_version }} to pypi.org when every platform passed
         env:
           VERSION: ${{ matrix.version }}
           EXTENSION: ${{ matrix.extension }}

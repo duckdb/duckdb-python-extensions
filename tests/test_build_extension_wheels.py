@@ -19,18 +19,22 @@ from duckdb_extensions.registry import server_platform
 from extension_binaries import synthetic_binary
 
 
+FAKE_HEADERS = {"etag": '"abc123"', "last_modified": "Tue, 20 Oct 2026 12:09:39 GMT"}
+
+
 def _fake_download(name, version, platform, out_dir):
     """Mock download that creates a synthetic extension binary with the footer the server's binary would have."""
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, f"{name}.duckdb_extension")
     with open(path, "wb") as f:
         f.write(synthetic_binary(name, server_platform(platform), f"v{version}"))
-    return path
+    url = f"https://extensions.duckdb.org/v{version}/{server_platform(platform)}/{name}.duckdb_extension.gz"
+    return path, build_extension_wheels.provenance_lines(url, FAKE_HEADERS)
 
 
 def _fake_download_404(name, version, platform, out_dir):
     """Mock download that simulates a 404."""
-    return None
+    return None, None
 
 
 class TestBuildExtensionWheel:
@@ -157,7 +161,7 @@ class TestMuslWheels:
 class TestMain:
     def test_explicit_platform_absent_from_server_fails(self, tmp_path):
         def download(name, version, platform, out_dir):
-            return _fake_download(name, version, platform, out_dir) if platform == "osx-arm64" else None
+            return _fake_download(name, version, platform, out_dir) if platform == "osx-arm64" else (None, None)
 
         with patch.object(build_extension_wheels, "download_extension", side_effect=download), pytest.raises(SystemExit) as excinfo:
             build_extension_wheels.main(["--version", "2.0.0", "--extension", "ui", "--platform", "osx-amd64", "--platform", "osx-arm64", "--out-dir", str(tmp_path)])
@@ -167,7 +171,7 @@ class TestMain:
 
     def test_default_platforms_skip_absent_ones(self, tmp_path):
         def download(name, version, platform, out_dir):
-            return _fake_download(name, version, platform, out_dir) if platform.startswith("linux") else None
+            return _fake_download(name, version, platform, out_dir) if platform.startswith("linux") else (None, None)
 
         with patch.object(build_extension_wheels, "download_extension", side_effect=download):
             build_extension_wheels.main(["--version", "2.0.0", "--extension", "ui", "--out-dir", str(tmp_path)])
@@ -217,19 +221,28 @@ class TestWheelMetadata:
 
 class TestDownloadExtension:
     def test_404_means_none(self, tmp_path):
-        with patch.object(build_extension_wheels, "get_bytes", return_value=None) as get:
-            assert build_extension_wheels.download_extension("httpfs", "2.0.0", "linux-amd64", str(tmp_path)) is None
+        with patch.object(build_extension_wheels, "get_bytes_headers", return_value=(None, None)) as get:
+            assert build_extension_wheels.download_extension("httpfs", "2.0.0", "linux-amd64", str(tmp_path)) == (None, None)
         assert get.call_args[0][0] == "https://extensions.duckdb.org/v2.0.0/linux_amd64/httpfs.duckdb_extension.gz"
 
     def test_decompresses_to_the_server_file_name(self, tmp_path):
         import gzip
 
-        with patch.object(build_extension_wheels, "get_bytes", return_value=gzip.compress(b"binary")) as get:
-            path = build_extension_wheels.download_extension("postgres", "2.0.0", "linux-amd64", str(tmp_path))
+        with patch.object(build_extension_wheels, "get_bytes_headers", return_value=(gzip.compress(b"binary"), FAKE_HEADERS)) as get:
+            path, provenance = build_extension_wheels.download_extension("postgres", "2.0.0", "linux-amd64", str(tmp_path))
         assert get.call_args[0][0].endswith("/linux_amd64/postgres_scanner.duckdb_extension.gz")
         assert os.path.basename(path) == "postgres_scanner.duckdb_extension"
         with open(path, "rb") as f:
             assert f.read() == b"binary"
+        assert provenance == (
+            ("source", "https://extensions.duckdb.org/v2.0.0/linux_amd64/postgres_scanner.duckdb_extension.gz"),
+            ("etag", '"abc123"'),
+            ("last_modified", "Tue, 20 Oct 2026 12:09:39 GMT"),
+        )
+
+    def test_missing_headers_become_empty_lines(self):
+        lines = build_extension_wheels.provenance_lines("https://x/y.gz", {"etag": None, "last_modified": None})
+        assert lines == (("source", "https://x/y.gz"), ("etag", ""), ("last_modified", ""))
 
 
 class TestScannerWheel:
@@ -249,9 +262,9 @@ class TestScannerWheel:
 class TestPartialWheel:
     def test_failed_build_leaves_no_wheel(self, tmp_path):
         def boom(name, version, platform, out_dir):
-            path = _fake_download(name, version, platform, out_dir)
+            path, provenance = _fake_download(name, version, platform, out_dir)
             os.chmod(path, 0)
-            return path
+            return path, provenance
 
         with patch.object(build_extension_wheels, "download_extension", side_effect=boom), pytest.raises(PermissionError):
             build_extension_wheels.build_extension_wheel("httpfs", "linux-amd64", "2.0.0", str(tmp_path))
@@ -286,10 +299,52 @@ class TestStagingWheel:
 
 
 class TestRequiresDist:
-    def test_iceberg_requires_avro_at_the_same_version(self, tmp_path):
+    def test_iceberg_requires_avro_of_the_same_duckdb_version_or_a_post_release_of_it(self, tmp_path):
         with patch.object(build_extension_wheels, "download_extension", side_effect=_fake_download):
-            whl = build_extension_wheels.build_extension_wheel("iceberg", "linux-amd64", "2.0.0", str(tmp_path))
+            whl = build_extension_wheels.build_extension_wheel("iceberg", "linux-amd64", "2.0.0", str(tmp_path), wheel_version="2.0.0.post1")
         with zipfile.ZipFile(whl) as zf:
-            metadata = zf.read("duckdb_core_ext_iceberg-2.0.0.dist-info/METADATA").decode()
-        assert "Requires-Dist: duckdb-core-ext-avro==2.0.0\n" in metadata
+            metadata = zf.read("duckdb_core_ext_iceberg-2.0.0.post1.dist-info/METADATA").decode()
+        assert "Requires-Dist: duckdb-core-ext-avro==2.0.0.*\n" in metadata
         assert metadata.count("Requires-Dist") == 1
+
+    def test_the_pin_admits_a_post_release_and_not_the_next_patch(self):
+        SpecifierSet = pytest.importorskip("packaging.specifiers").SpecifierSet
+
+        spec = SpecifierSet("==2.0.0.*")
+        assert spec.contains("2.0.0") and spec.contains("2.0.0.post1") and spec.contains("2.0.0.post2")
+        assert not spec.contains("2.0.1") and not spec.contains("1.5.6")
+        assert not SpecifierSet("==2.0.0").contains("2.0.0.post1")
+
+
+class TestProvenance:
+    def test_pipeline_wheel_records_binary_and_server(self, tmp_path):
+        import duckdb_extension_wheel as tool
+
+        with patch.object(build_extension_wheels, "download_extension", side_effect=_fake_download):
+            whl = build_extension_wheels.build_extension_wheel("httpfs", "linux-amd64", "2.0.0", str(tmp_path))
+        with zipfile.ZipFile(whl) as zf:
+            metadata = zf.read("duckdb_core_ext_httpfs-2.0.0.dist-info/METADATA").decode()
+            binary = zf.read("duckdb_core_ext_httpfs-2.0.0.data/platlib/.duckdb_extensions/v2.0.0/linux_amd64/httpfs.duckdb_extension")
+        assert tool.read_provenance(metadata) == {
+            "extension_version": "v0.0.1",
+            "sha256": hashlib.sha256(binary).hexdigest(),
+            "source": "https://extensions.duckdb.org/v2.0.0/linux_amd64/httpfs.duckdb_extension.gz",
+            "etag": '"abc123"',
+            "last_modified": "Tue, 20 Oct 2026 12:09:39 GMT",
+        }
+
+
+class TestWheelVersion:
+    def test_post_release_wheel_keeps_the_binary_under_the_duckdb_version(self, tmp_path):
+        with patch.object(build_extension_wheels, "download_extension", side_effect=_fake_download):
+            whl = build_extension_wheels.build_extension_wheel("httpfs", "osx-arm64", "2.0.0", str(tmp_path), wheel_version="2.0.0.post3", stage_version="2.0.0.post3.dev9", stage_dir=str(tmp_path / "s"))
+        assert os.path.basename(whl) == "duckdb_core_ext_httpfs-2.0.0.post3-py3-none-macosx_12_0_arm64.whl"
+        with zipfile.ZipFile(whl) as zf:
+            names = zf.namelist()
+        assert "duckdb_core_ext_httpfs-2.0.0.post3.data/platlib/.duckdb_extensions/v2.0.0/osx_arm64/httpfs.duckdb_extension" in names
+        assert os.listdir(tmp_path / "s") == ["duckdb_core_ext_httpfs-2.0.0.post3.dev9-py3-none-macosx_12_0_arm64.whl"]
+
+    def test_main_passes_the_wheel_version(self, tmp_path):
+        with patch.object(build_extension_wheels, "build_extension_wheel", return_value=str(tmp_path / "w.whl")) as build:
+            build_extension_wheels.main(["--version", "2.0.0", "--extension", "httpfs", "--platform", "linux-amd64", "--out-dir", str(tmp_path), "--wheel-version", "2.0.0.post1"])
+        assert build.call_args.kwargs["wheel_version"] == "2.0.0.post1"

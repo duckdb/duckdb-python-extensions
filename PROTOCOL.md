@@ -53,6 +53,8 @@ You give what the binary cannot say:
 
 All binaries in one call must be the same extension for the same DuckDB version, one per platform. The tool refuses, and writes no wheel at all, when a binary has no DuckDB metadata, is for a platform without a wheel tag, is for a development build of DuckDB, or does not match the others.
 
+Every wheel ends its description with a section the tool writes, `## Provenance`, that says which binary the wheel carries: the `extension_version` from the binary's metadata (for DuckDB's own extensions the commit they were built from) and the `sha256` of the binary, one `- key: value` line each. It is Markdown, so it reads on the PyPI page, and `duckdb_extension_wheel.read_provenance(text)` parses it from a METADATA file, which PyPI serves separately from the wheel. The core extension packages add where the binary came from (`source`, `etag`, `last_modified`), and their pipeline compares that record with the server every night to notice a replaced binary; see the repository README.
+
 ### Extensions built against the C API
 
 An extension built against DuckDB's stable C API does not record the DuckDB version it is meant for, only the oldest C API version it needs, because it loads in every DuckDB release that offers that API. A wheel still has to put it under one `v<DuckDB version>` directory, so for such a binary you name the DuckDB version yourself with `--duckdb-version 2.0.0`. For any other binary, `--duckdb-version` is optional and must agree with what the binary says. The tool cannot tell whether the DuckDB version you name offers the C API version the binary needs; `duckdb-extension-wheel check` finds out, because that DuckDB refuses to load it otherwise.

@@ -10,9 +10,10 @@ import duckdb_extension_wheel.net as net
 
 
 class _Response(io.BytesIO):
-    def __init__(self, status, body=b""):
+    def __init__(self, status, body=b"", headers=None):
         super().__init__(body)
         self.status = status
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -88,6 +89,40 @@ class TestGetJson:
         calls = _urlopen(monkeypatch, [TimeoutError(), _Response(200, b"[]")])
         assert net.get_json("https://example.invalid/j", "application/json") == []
         assert len(calls) == 2
+
+
+class TestHeadHeaders:
+    def test_etag_and_last_modified(self, monkeypatch):
+        _urlopen(monkeypatch, [_Response(200, headers={"ETag": '"e1"', "Last-Modified": "Tue, 20 Oct 2026 12:09:39 GMT"})])
+        assert net.head_headers("https://example.invalid/x") == (200, {"etag": '"e1"', "last_modified": "Tue, 20 Oct 2026 12:09:39 GMT"})
+
+    def test_missing_headers_are_none(self, monkeypatch):
+        _urlopen(monkeypatch, [_Response(200)])
+        assert net.head_headers("https://example.invalid/x") == (200, {"etag": None, "last_modified": None})
+
+    def test_404_has_no_headers(self, monkeypatch):
+        _urlopen(monkeypatch, [urllib.error.HTTPError("https://example.invalid/x", 404, "nf", {}, io.BytesIO())])
+        assert net.head_headers("https://example.invalid/x") == (404, {"etag": None, "last_modified": None})
+
+
+class TestGetBytesHeaders:
+    def test_body_and_headers(self, monkeypatch):
+        _urlopen(monkeypatch, [_Response(200, b"binary", headers={"ETag": '"e1"'})])
+        assert net.get_bytes_headers("https://example.invalid/b") == (b"binary", {"etag": '"e1"', "last_modified": None})
+
+    def test_404_is_none_twice(self, monkeypatch):
+        _urlopen(monkeypatch, [urllib.error.HTTPError("https://example.invalid/b", 404, "nf", {}, io.BytesIO())])
+        assert net.get_bytes_headers("https://example.invalid/b") == (None, None)
+
+
+class TestGetText:
+    def test_utf8_body(self, monkeypatch):
+        _urlopen(monkeypatch, [_Response(200, "Metadata-Version: 2.1\n".encode("utf-8"))])
+        assert net.get_text("https://example.invalid/m") == "Metadata-Version: 2.1\n"
+
+    def test_404_is_none(self, monkeypatch):
+        _urlopen(monkeypatch, [urllib.error.HTTPError("https://example.invalid/m", 404, "nf", {}, io.BytesIO())])
+        assert net.get_text("https://example.invalid/m") is None
 
 
 class TestGetBytes:

@@ -14,7 +14,7 @@ The wheels are written by `duckdb-extension-wheel`, a command and Python package
 
 ## How publishing works
 
-One workflow, `.github/workflows/publish.yml`, runs every night and by hand, with no human step. It plans, stages, tests and promotes:
+One workflow, `.github/workflows/publish.yml`, runs every night and by hand, with no human step except the approval of a post release (see A binary replaced upstream). It plans, stages, tests and promotes:
 
 1. `scripts/plan_wheels.py` compares the stable DuckDB releases at or above the floor in the workflow, the files extensions.duckdb.org serves per extension and platform, and the wheel files already on pypi.org. Every wheel the server has and pypi.org lacks becomes one item per (version, extension).
 2. Each item builds its wheels once with `scripts/build_extension_wheels.py`, as a production wheel and a staging copy of the same bytes under `<version>.dev<run id>`. The staging copies go to test.pypi; the production wheels stay with the run.
@@ -24,6 +24,12 @@ One workflow, `.github/workflows/publish.yml`, runs every night and by hand, wit
 Both uploads authenticate with trusted publishing: every project on test.pypi has a publisher for this repository, workflow `publish.yml` and environment `pypi-test`, and every project on pypi.org one for environment `pypi`. Neither environment requires reviewers. By hand, the `promote` input decides whether step 4 runs.
 
 The list of extensions, their PyPI project names and their aliases live in `src/duckdb_extensions/registry.py`; the planner in `src/duckdb_extensions/plan.py`; the platform mapping in `src/duckdb_extension_wheel/binary.py` and the requests with their retry policy in `src/duckdb_extension_wheel/net.py`.
+
+## A binary replaced upstream
+
+A published wheel is never changed, but the binary on extensions.duckdb.org can be: rebuilt from the same commit, or replaced by a build from another one, for the same DuckDB version. Every wheel records which binary it carries, in the `## Provenance` section of its description (extension_version from the footer, sha256, and the server's ETag and Last-Modified at build time), and PyPI serves that metadata without the wheel. `.github/workflows/detect.yml` compares it with the server every night, after the publish run: an equal ETag means nothing to download; otherwise the file is read and the footer's extension_version and the hash decide between a replacement, a rebuild and an ETag change without a new binary (`src/duckdb_extensions/replaced.py`). A replacement or rebuild becomes a post release item, `<version>.postN`, covering every platform whose wheel is published and whose file the server still serves, and an extension that requires the changed one gets a post release too while its newest wheel pins the requirement exactly; the workflow writes `findings.json`, opens or updates the issue "Core extension binaries replaced upstream", and dispatches `publish.yml` with the items as its `replacements` input. An item staged before and never promoted (a failed test, a rejected approval) is listed as failed and not dispatched again; a detect run started by hand with a version or extension input stages it again. That run stages and tests the post release wheels like any other, and its upload waits for a reviewer in the `post-release-approval` environment; the `pypi` environment and the trusted publishers are untouched. The status page marks the cells concerned until the post release is on pypi.org.
+
+Dependencies between extensions and the extras of `duckdb-cli` are pinned as `==<DuckDB version>.*`, so a post release satisfies them. Wheels published before this existed record no provenance; `data/provenance_baseline.json`, written once by `scripts/provenance_baseline.py` from the wheels on pypi.org, stands in for them.
 
 ## New core extensions
 

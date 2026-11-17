@@ -16,16 +16,18 @@ def test_items_for_platform_groups_by_version():
             {"version": "2.0.0", "extension": "tpch", "platforms": ["linux-arm64", "osx-arm64"]},
             {"version": "2.0.0", "extension": "postgres", "platforms": ["linux-arm64"]},
             {"version": "1.5.6", "extension": "ui", "platforms": ["osx-arm64"]},
+            {"version": "2.0.0", "extension": "httpfs", "platforms": ["osx-arm64"], "wheel_version": "2.0.0.post1"},
         ]
     }
-    assert test_installed.items_for_platform(plan, "linux-arm64") == {"2.0.0": ["tpch", "postgres"]}
-    assert test_installed.items_for_platform(plan, "osx-arm64") == {"2.0.0": ["tpch"], "1.5.6": ["ui"]}
+    assert test_installed.items_for_platform(plan, "linux-arm64") == {("2.0.0", "2.0.0"): ["tpch", "postgres"]}
+    assert test_installed.items_for_platform(plan, "osx-arm64") == {("2.0.0", "2.0.0"): ["tpch"], ("1.5.6", "1.5.6"): ["ui"], ("2.0.0", "2.0.0.post1"): ["httpfs"]}
     assert test_installed.items_for_platform(plan, "windows-amd64") == {}
 
 
-def test_required_releases_are_the_released_dependencies():
+def test_required_releases_are_the_released_dependencies_or_the_staged_ones():
     assert test_installed.required_releases("tpch", "2.0.0") == []
-    assert test_installed.required_releases("iceberg", "2.0.0") == ["duckdb-core-ext-avro==2.0.0"]
+    assert test_installed.required_releases("iceberg", "2.0.0") == [("duckdb-core-ext-avro==2.0.0.*", "https://pypi.org/simple/")]
+    assert test_installed.required_releases("iceberg", "2.0.0", staged={"avro": "2.0.0.post1.dev44", "iceberg": "2.0.0.post1.dev44"}) == [("duckdb-core-ext-avro==2.0.0.post1.dev44", None)]
 
 
 def test_cli_home_has_a_duckdb_directory(tmp_path):
@@ -115,7 +117,7 @@ class TestRunWiring:
 
         assert ok is True
         assert [c[0] for c in calls] == [
-            (("duckdb-core-ext-avro==2.0.0", "https://pypi.org/simple/"), ("duckdb-core-ext-iceberg==2.0.0.dev7", "https://test.pypi.org/simple/")),
+            (("duckdb-core-ext-avro==2.0.0.*", "https://pypi.org/simple/"), ("duckdb-core-ext-iceberg==2.0.0.dev7", "https://test.pypi.org/simple/")),
             (("duckdb-core-ext-tpch==2.0.0.dev7", "https://test.pypi.org/simple/"),),
         ]
         assert calls[0][1] != calls[1][1] and calls[0][2] != calls[1][2]
@@ -201,3 +203,44 @@ class TestRun:
         with pytest.raises(SystemExit) as excinfo:
             test_installed._main(["--platform", "linux-arm64", "--version", "2.0.0", "--extension", "tpch", "--results", str(tmp_path / "r.json")])
         assert excinfo.value.code == 1
+
+
+def test_main_with_a_plan_passes_the_staged_items_of_the_same_version(tmp_path, monkeypatch):
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"items": [
+        {"version": "2.0.0", "extension": "avro", "platforms": ["linux-arm64"], "wheel_version": "2.0.0.post1"},
+        {"version": "2.0.0", "extension": "iceberg", "platforms": ["linux-arm64"], "wheel_version": "2.0.0.post1"},
+        {"version": "2.0.0", "extension": "tpch", "platforms": ["linux-arm64"]},
+        {"version": "1.5.6", "extension": "ui", "platforms": ["linux-arm64"]},
+    ]}))
+    calls = []
+
+    def run(version, wheel_version, platform, extensions, index, results_path, staged=None):
+        calls.append((version, wheel_version, extensions, staged))
+        return True
+
+    monkeypatch.setattr(test_installed, "run", run)
+    with pytest.raises(SystemExit) as exc:
+        test_installed._main(["--platform", "linux-arm64", "--plan", str(plan), "--stage-suffix", ".dev7", "--results", str(tmp_path / "r.json")])
+    assert exc.value.code == 0
+    assert calls == [
+        ("1.5.6", "1.5.6.dev7", ["ui"], {"ui": "1.5.6.dev7"}),
+        ("2.0.0", "2.0.0.dev7", ["tpch"], {"avro": "2.0.0.post1.dev7", "iceberg": "2.0.0.post1.dev7", "tpch": "2.0.0.dev7"}),
+        ("2.0.0", "2.0.0.post1.dev7", ["avro", "iceberg"], {"avro": "2.0.0.post1.dev7", "iceberg": "2.0.0.post1.dev7", "tpch": "2.0.0.dev7"}),
+    ]
+
+
+def test_a_dependency_staged_in_the_same_run_comes_from_the_staging_index(tmp_path, monkeypatch):
+    calls = []
+
+    class Pip:
+        returncode = 1
+        stdout = "stop here"
+        stderr = ""
+
+    monkeypatch.setattr(test_installed.venv, "create", lambda d, with_pip: None)
+    monkeypatch.setattr(test_installed, "site_packages", lambda d: ("python", "/unused"))
+    monkeypatch.setattr(test_installed, "download_cli", lambda v, p, d: "/bin/duckdb")
+    monkeypatch.setattr(test_installed, "install", lambda python, target, wanted, downloads: calls.append(tuple(wanted)) or Pip())
+    test_installed.run("2.0.0", "2.0.0.post1.dev7", "linux-arm64", ["iceberg"], "https://test.pypi.org/simple/", str(tmp_path / "r.json"), staged={"avro": "2.0.0.post1.dev7", "iceberg": "2.0.0.post1.dev7"})
+    assert calls == [(("duckdb-core-ext-avro==2.0.0.post1.dev7", "https://test.pypi.org/simple/"), ("duckdb-core-ext-iceberg==2.0.0.post1.dev7", "https://test.pypi.org/simple/"))]

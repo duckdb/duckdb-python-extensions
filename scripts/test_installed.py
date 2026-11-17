@@ -78,10 +78,18 @@ def load_in_cli(cli, ext_dir, name, home):
     return check.load_in_cli(cli, ext_dir, server_name(name), home)
 
 
-def required_releases(name, version):
-    """pip requirements for the released wheels the extension's LOAD needs; they are on pypi.org before the
-    extension is ever planned."""
-    return [f"{project_name(dep)}=={version}" for dep in REQUIRES.get(name, [])]
+def required_releases(name, version, staged=None):
+    """(pip requirement, index) for the wheels the extension's LOAD needs: the dependency's staging wheel from
+    the same run when it is in the plan (staged maps project names to their staging versions), else the newest
+    release of the DuckDB version on pypi.org, a post release included."""
+    staged = staged or {}
+    wanted = []
+    for dep in REQUIRES.get(name, []):
+        if dep in staged:
+            wanted.append((f"{project_name(dep)}=={staged[dep]}", None))
+        else:
+            wanted.append((f"{project_name(dep)}=={version}.*", RELEASE_INDEX))
+    return wanted
 
 
 def _record(results, results_path, key, ok, detail):
@@ -103,9 +111,13 @@ def _describe(e):
     return repr(e)
 
 
-def run(version, wheel_version, platform, extensions, index, results_path, release_index="https://pypi.org/simple/"):
+RELEASE_INDEX = "https://pypi.org/simple/"
+
+
+def run(version, wheel_version, platform, extensions, index, results_path, staged=None):
     """Test every extension of one version, each in its own install target so that a missing requirement
-    shows; each result is written as soon as it is known. Returns whether every extension tested here passed."""
+    shows; each result is written as soon as it is known. staged maps the project names of this run's other
+    items for the version to their staging versions. Returns whether every extension tested here passed."""
     results = {}
     if os.path.exists(results_path):
         with open(results_path) as f:
@@ -126,7 +138,7 @@ def run(version, wheel_version, platform, extensions, index, results_path, relea
             target = os.path.join(tmp, "site", name)
             ext_dir = os.path.join(target, ".duckdb_extensions")
             try:
-                wanted = [(req, release_index) for req in required_releases(name, version)]
+                wanted = [(req, source or index) for req, source in required_releases(name, version, staged)]
                 wanted.append((f"{project_name(name)}=={wheel_version}", index))
                 pip = install(python, target, wanted, os.path.join(tmp, "downloads", name))
                 if pip.returncode != 0:
@@ -144,12 +156,13 @@ def run(version, wheel_version, platform, extensions, index, results_path, relea
 
 
 def items_for_platform(plan, platform):
-    """{version: [project names]} of the plan's items that have the platform."""
-    by_version = {}
+    """{(DuckDB version, wheel version): [project names]} of the plan's items that have the platform; a post
+    release item names its wheel version, every other item's wheel version is the DuckDB version."""
+    groups = {}
     for item in plan["items"]:
         if platform in item["platforms"]:
-            by_version.setdefault(item["version"], []).append(item["extension"])
-    return by_version
+            groups.setdefault((item["version"], item.get("wheel_version") or item["version"]), []).append(item["extension"])
+    return groups
 
 
 def _main(argv=None):
@@ -170,8 +183,10 @@ def _main(argv=None):
         with open(args.plan) as f:
             plan = json.load(f)
         ok = True
-        for version, extensions in sorted(items_for_platform(plan, args.platform).items()):
-            ok = run(version, version + args.stage_suffix, args.platform, extensions, args.index, args.results) and ok
+        groups = items_for_platform(plan, args.platform)
+        for (version, wheel_version), extensions in sorted(groups.items()):
+            staged = {e: wv + args.stage_suffix for (v, wv), names in groups.items() if v == version for e in names}
+            ok = run(version, wheel_version + args.stage_suffix, args.platform, extensions, args.index, args.results, staged=staged) and ok
     elif args.version and args.extension:
         ok = run(args.version, args.wheel_version or args.version, args.platform, args.extension, args.index, args.results)
     else:

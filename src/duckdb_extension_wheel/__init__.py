@@ -9,7 +9,7 @@ from .binary import (
     inspect_extension,
     read_footer,
 )
-from .wheel import WheelMetadata, build_wheels, dist_name, wheel_filename, write_wheel
+from .wheel import WheelMetadata, build_wheels, dist_name, provenance_section, read_provenance, wheel_filename, write_wheel
 
 __all__ = [
     "WheelError",
@@ -24,4 +24,6 @@ __all__ = [
     "build_wheels",
     "dist_name",
     "wheel_filename",
+    "provenance_section",
+    "read_provenance",
 ]

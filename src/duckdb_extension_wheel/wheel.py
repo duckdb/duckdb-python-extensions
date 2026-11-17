@@ -41,6 +41,8 @@ class WheelMetadata:
     project_urls: tuple = ()
     requires_python: str = ">=3.8"
     keywords: tuple = ()
+    # Further "key: value" lines for the Provenance section, after the binary's own extension_version and sha256.
+    provenance: tuple = ()
 
     def __post_init__(self):
         if isinstance(self.requires, str):
@@ -49,6 +51,7 @@ class WheelMetadata:
             raise WheelError("project_urls must be a list of strings, not one string")
         if isinstance(self.keywords, str):
             raise WheelError("keywords must be a list of strings, not one string")
+        object.__setattr__(self, "provenance", tuple(tuple(item) for item in (self.provenance or ())))
         object.__setattr__(self, "requires", tuple(self.requires or ()))
         object.__setattr__(self, "project_urls", tuple(self.project_urls or ()))
         object.__setattr__(self, "keywords", tuple(self.keywords or ()))
@@ -94,7 +97,43 @@ class WheelMetadata:
                 raise WheelError(f"keyword contains a comma: {kw}")
 
 
-def _generate_metadata(metadata):
+PROVENANCE_HEADING = "## Provenance"
+
+
+def provenance_section(extension, extra=()):
+    """The Markdown that records which binary a wheel carries: the footer's extension_version, the sha256 of
+    the binary, then the caller's lines, each "- key: value"."""
+    items = [("extension_version", extension.extension_version), ("sha256", hashlib.sha256(extension.data).hexdigest())]
+    items.extend(extra)
+    for key, value in items:
+        if not re.fullmatch(r"[a-z0-9_]+", key) or "\n" in str(value):
+            raise WheelError(f"provenance line is not 'key: value' on one line: {key!r}")
+    return PROVENANCE_HEADING + "\n\n" + "\n".join(f"- {key}: {value}" for key, value in items) + "\n"
+
+
+def read_provenance(metadata_text):
+    """The provenance recorded in a METADATA file's description as a dict, or None when it has no such section."""
+    _, sep, body = metadata_text.partition("\n\n")
+    if not sep:
+        return None
+    found = None
+    for line in body.splitlines():
+        if line.rstrip() == PROVENANCE_HEADING:
+            found = {}
+            continue
+        if found is None:
+            continue
+        if line.startswith("- ") and ": " in line:
+            key, _, value = line[2:].partition(": ")
+            found[key.strip()] = value.strip()
+        elif line.strip() == "" and not found:
+            continue
+        elif line.startswith("#"):
+            break
+    return found
+
+
+def _generate_metadata(metadata, provenance=None):
     lines = []
 
     if metadata.license_expression:
@@ -123,10 +162,13 @@ def _generate_metadata(metadata):
     for url in metadata.project_urls:
         lines.append(f"Project-URL: {url}")
 
-    if metadata.description:
-        content_type = metadata.description_content_type or "text/plain"
+    description = metadata.description or ""
+    if provenance:
+        description = (description.rstrip("\n") + "\n\n" if description else "") + provenance
+    if description:
+        content_type = metadata.description_content_type or ("text/markdown" if not metadata.description else "text/plain")
         lines.append(f"Description-Content-Type: {content_type}")
-        return "\n".join(lines) + "\n\n" + metadata.description
+        return "\n".join(lines) + "\n\n" + description
     else:
         return "\n".join(lines) + "\n"
 
@@ -186,7 +228,8 @@ def write_wheel(extension, metadata, out_dir):
             if extension.info is not None:
                 _zip_entry(zf, binary_path + ".info", extension.info, records)
 
-            _zip_entry(zf, f"{dist_info}/METADATA", _generate_metadata(metadata).encode("utf-8"), records)
+            metadata_text = _generate_metadata(metadata, provenance_section(extension, metadata.provenance))
+            _zip_entry(zf, f"{dist_info}/METADATA", metadata_text.encode("utf-8"), records)
 
             wheel_content = f"Wheel-Version: 1.0\nGenerator: duckdb-extension-build\nRoot-Is-Purelib: false\nTag: {wheel_tag}\n"
             _zip_entry(zf, f"{dist_info}/WHEEL", wheel_content.encode("utf-8"), records)
